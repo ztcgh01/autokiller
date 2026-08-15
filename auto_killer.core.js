@@ -1321,8 +1321,42 @@
     }
 
     function findVisibleEditButton() {
-      const buttons = [...document.querySelectorAll('[data-testid="edit-button"]')];
-      return buttons.reverse().find(button => button.isConnected && !button.disabled && button.getClientRects().length > 0) || null;
+      const usable = button => button
+        && button.isConnected
+        && !button.disabled
+        && button.getClientRects().length > 0;
+
+      // 1) 현재 ZETA 기본 구조
+      const byTestId = [...document.querySelectorAll('[data-testid="edit-button"]')]
+        .reverse()
+        .find(usable);
+      if (byTestId) return byTestId;
+
+      // 2) 일부 계정/UI 변형 대비: 실제 ZETA 수정(연필) 아이콘 SVG
+      const pencilPaths = [...document.querySelectorAll('button svg[viewBox="0 0 24 24"] path')]
+        .filter(path => (path.getAttribute('d') || '').startsWith('M21.675 7.905'));
+      const byPencilIcon = pencilPaths
+        .map(path => path.closest('button'))
+        .reverse()
+        .find(usable);
+      if (byPencilIcon) return byPencilIcon;
+
+      // 3) data-testid와 SVG path가 모두 달라진 경우의 제한적 fallback.
+      // regen-next-button과 같은 액션 행의 "직접 자식" 버튼 중 24x24 SVG를 가진 버튼만 본다.
+      // 중첩된 다른 기능 버튼은 제외해 오탐 범위를 좁힌다.
+      const regenButtons = [...document.querySelectorAll('[data-testid="regen-next-button"]')].reverse();
+      for (const regen of regenButtons) {
+        if (!regen.isConnected) continue;
+        const actionRow = regen.parentElement;
+        if (!actionRow) continue;
+        const candidates = [...actionRow.children]
+          .filter(element => element.tagName === 'BUTTON' && element !== regen)
+          .filter(usable)
+          .filter(button => button.querySelector('svg[viewBox="0 0 24 24"]'));
+        if (candidates.length) return candidates[candidates.length - 1];
+      }
+
+      return null;
     }
 
     async function waitForResult(getter, timeout = 30000, interval = 250) {
