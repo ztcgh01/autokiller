@@ -1540,8 +1540,8 @@
     async function sendFromZeta(button, say, extraInstruction = '') {
       const transferTab = openTransferTab();
       button.disabled = true; say('편집 원문을 가져오는 중…');
-      const edit = document.querySelector('[data-testid="edit-button"]');
-      if (!edit) { closeTransferTab(transferTab); say('수정 버튼을 못 찾았어요.', true); button.disabled = false; return; }
+      const edit = await waitForResult(findVisibleEditButton, 5000, 200);
+      if (!edit) { closeTransferTab(transferTab); say('5초 동안 수정 버튼을 찾지 못했어요.', true); button.disabled = false; return; }
       edit.click();
       const editor = await waitForResult(findEditor, 10000, 200);
       if (!editor) { closeTransferTab(transferTab); say('편집창을 못 찾았어요.', true); button.disabled = false; return; }
