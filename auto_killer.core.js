@@ -1300,24 +1300,54 @@
     }
 
     function findEditor() {
+      // 기존 ZETA 구조: 정상 사용자 경로는 그대로 유지
       const editors = [...document.querySelectorAll('#portal-container textarea[name="message"]')]
         .filter(item => item.classList.contains('w-full') && item.getAttribute('testid') !== 'chat-message-input');
-      return editors[editors.length - 1] || null;
+      if (editors.length) return editors[editors.length - 1];
+
+      // 일부 ZETA UI 변형: 실제 수정 모드 패널 내부의 message textarea
+      // 평상시 채팅 입력창(textarea[name="message"])과 혼동하지 않도록 EditModeInputPanelContent 내부로 제한
+      const editModeEditors = [...document.querySelectorAll(
+        '[data-sentry-component="EditModeInputPanelContent"] textarea[name="message"]'
+      )].filter(item => item.isConnected && item.getClientRects().length > 0);
+      return editModeEditors[editModeEditors.length - 1] || null;
     }
 
     function findEditSaveButton(editor) {
       if (!editor) return null;
+
+      // 기존 ZETA 구조
       const portal = editor.closest('#portal-container');
-      if (!portal) return null;
-      const checkmarkButton = portal.querySelector('path[d*="M13.507 5"]')?.closest('button');
-      if (checkmarkButton?.isConnected) return checkmarkButton;
-      const candidates = [...portal.querySelectorAll('button.bg-primary-400')]
-        .filter(button => button.getAttribute('data-testid') !== 'chat-send-button' && button.isConnected);
-      if (candidates.length) return candidates[candidates.length - 1];
-      const editorArea = editor.parentElement;
-      const actionRow = editorArea?.nextElementSibling;
-      const actionButtons = actionRow ? [...actionRow.querySelectorAll('button')].filter(button => button.isConnected) : [];
-      return actionButtons[actionButtons.length - 1] || null;
+      if (portal) {
+        const checkmarkButton = portal.querySelector('path[d*="M13.507 5"]')?.closest('button');
+        if (checkmarkButton?.isConnected) return checkmarkButton;
+        const candidates = [...portal.querySelectorAll('button.bg-primary-400')]
+          .filter(button => button.getAttribute('data-testid') !== 'chat-send-button' && button.isConnected);
+        if (candidates.length) return candidates[candidates.length - 1];
+        const editorArea = editor.parentElement;
+        const actionRow = editorArea?.nextElementSibling;
+        const actionButtons = actionRow ? [...actionRow.querySelectorAll('button')].filter(button => button.isConnected) : [];
+        if (actionButtons.length) return actionButtons[actionButtons.length - 1];
+      }
+
+      // 일부 ZETA UI 변형: EditModeInputPanelContent 안/주변의 실제 Save edit 버튼
+      const editPanel = editor.closest('[data-sentry-component="EditModeInputPanelContent"]');
+      if (editPanel) {
+        const panelRoot = editPanel.parentElement || editPanel;
+        const byAria = [...panelRoot.querySelectorAll('button[aria-label="Save edit"]')]
+          .reverse()
+          .find(button => button.isConnected && button.getClientRects().length > 0);
+        if (byAria) return byAria;
+
+        const byCheckmark = [...panelRoot.querySelectorAll('button path')]
+          .filter(path => (path.getAttribute('d') || '').startsWith('M13.507 5'))
+          .map(path => path.closest('button'))
+          .reverse()
+          .find(button => button?.isConnected && button.getClientRects().length > 0);
+        if (byCheckmark) return byCheckmark;
+      }
+
+      return null;
     }
 
     function findVisibleEditButton() {
@@ -1332,7 +1362,13 @@
         .find(usable);
       if (byTestId) return byTestId;
 
-      // 2) 일부 계정/UI 변형 대비: 실제 ZETA 수정(연필) 아이콘 SVG
+      // 2) 일부 ZETA UI 변형: data-testid 대신 aria-label만 제공
+      const byAriaLabel = [...document.querySelectorAll('button[aria-label="Edit message"]')]
+        .reverse()
+        .find(usable);
+      if (byAriaLabel) return byAriaLabel;
+
+      // 3) 일부 계정/UI 변형 대비: 실제 ZETA 수정(연필) 아이콘 SVG
       const pencilPaths = [...document.querySelectorAll('button svg[viewBox="0 0 24 24"] path')]
         .filter(path => (path.getAttribute('d') || '').startsWith('M21.675 7.905'));
       const byPencilIcon = pencilPaths
@@ -1341,7 +1377,7 @@
         .find(usable);
       if (byPencilIcon) return byPencilIcon;
 
-      // 3) data-testid와 SVG path가 모두 달라진 경우의 제한적 fallback.
+      // 4) data-testid/aria-label/SVG path가 모두 달라진 경우의 제한적 fallback.
       // regen-next-button과 같은 액션 행의 "직접 자식" 버튼 중 24x24 SVG를 가진 버튼만 본다.
       // 중첩된 다른 기능 버튼은 제외해 오탐 범위를 좁힌다.
       const regenButtons = [...document.querySelectorAll('[data-testid="regen-next-button"]')].reverse();
