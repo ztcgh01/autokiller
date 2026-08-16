@@ -158,7 +158,8 @@
     }
 
     function openTransferTab() {
-      if (BOOKMARKLET_MODE || ONECLICK_BRIDGE || localStorage.getItem(NEW_TAB_MODE_KEY) === 'false') return null;
+      if (BOOKMARKLET_MODE || localStorage.getItem(NEW_TAB_MODE_KEY) === 'false') return null;
+      if (ONECLICK_BRIDGE && !ONECLICK_IOS) return null;
       try { return window.open('about:blank', '_blank'); }
       catch (error) { return null; }
     }
@@ -183,7 +184,14 @@
       if (ONECLICK_BRIDGE) {
         // 임시채팅 ON일 때는 저장된 일반 대화 URL을 쓰지 않고 Custom GPT 시작 주소로 새 임시채팅을 연다.
         // OFF로 돌아오면 기존에 저장해 둔 일반 대화 URL을 다시 그대로 재사용한다.
-        const outgoingJob = { ...job, newTab: !ONECLICK_IOS, oneclick: true, temporaryChat };
+        const iosWantsNewTab = ONECLICK_IOS && localStorage.getItem(NEW_TAB_MODE_KEY) !== 'false';
+        const iosPreparedTab = iosWantsNewTab && preparedTab && !preparedTab.closed ? preparedTab : null;
+        const outgoingJob = {
+          ...job,
+          newTab: ONECLICK_IOS ? !!iosPreparedTab : true,
+          oneclick: true,
+          temporaryChat
+        };
         // ChatGPT가 초기 로딩 중 URL hash를 지워도 작업을 잃지 않도록 GM 공용 저장소에도 보관한다.
         await sharedStorage.set(JOB_KEY, outgoingJob);
         const payload = encodeTransfer(outgoingJob);
@@ -193,8 +201,13 @@
         const target = `${browserOnlyGptUrl(conversationUrl.split('#')[0])}#akjob=${encodeURIComponent(payload)}`;
         say(temporaryChat ? `${userscriptMessage} 임시채팅으로 여는 중…` : userscriptMessage);
         if (ONECLICK_IOS) {
-          await sleep(120);
-          location.replace(target);
+          if (iosPreparedTab) {
+            iosPreparedTab.location.href = target;
+            try { iosPreparedTab.focus(); } catch (error) {}
+          } else {
+            await sleep(120);
+            location.replace(target);
+          }
           return;
         }
         const transferTab = window.open(target, '_blank');
@@ -1508,11 +1521,13 @@
     }
 
     async function sendGenerationFromZeta(button, say, characterLimit, extraInstruction = '') {
+      const transferTab = openTransferTab();
       button.disabled = true;
       say('로드된 대화를 수집하는 중…');
       const collected = collectConversation(characterLimit);
       const conversation = collected.items;
       if (!collected.availableCharacterCount || conversation.length < 2) {
+        closeTransferTab(transferTab);
         say('생성에 사용할 대화를 충분히 찾지 못했어요.', true);
         button.disabled = false;
         return;
@@ -1524,6 +1539,7 @@
           '현재 분량으로 그냥 진행하려면 확인을 누르세요.\n더 위로 스크롤해 대화를 로드한 뒤 다시 시도하려면 취소를 누르세요.'
         );
         if (!proceed) {
+          closeTransferTab(transferTab);
           say(`현재 캐릭터 대사 ${collected.availableCharacterCount}개 로드됨 · 더 스크롤한 뒤 생성을 다시 눌러주세요.`);
           button.disabled = false;
           return;
@@ -1542,7 +1558,8 @@
       await handoffJob(
         job,
         say,
-        `캐릭터 대사 ${collected.selectedCharacterCount}개를 포함한 말풍선 ${conversation.length}개를 GPT로 전달해요.`
+        `캐릭터 대사 ${collected.selectedCharacterCount}개를 포함한 말풍선 ${conversation.length}개를 GPT로 전달해요.`,
+        transferTab
       );
       button.disabled = false;
     }
@@ -1567,11 +1584,13 @@
     }
 
     async function sendSummaryFromZeta(button, say, characterLimit, maxLength, instruction = DEFAULT_SUMMARY_INSTRUCTION) {
+      const transferTab = openTransferTab();
       button.disabled = true;
       say('요약할 대화를 수집하는 중…');
       const collected = collectConversation(characterLimit);
       const conversation = collected.items;
       if (!collected.availableCharacterCount || conversation.length < 2) {
+        closeTransferTab(transferTab);
         say('요약할 대화를 충분히 찾지 못했어요.', true);
         button.disabled = false;
         return;
@@ -1583,6 +1602,7 @@
           '현재 분량으로 그냥 진행하려면 확인을 누르세요.\n더 위로 스크롤해 대화를 로드한 뒤 다시 시도하려면 취소를 누르세요.'
         );
         if (!proceed) {
+          closeTransferTab(transferTab);
           say(`현재 캐릭터 대사 ${collected.availableCharacterCount}개 로드됨 · 더 스크롤한 뒤 요약을 다시 눌러주세요.`);
           button.disabled = false;
           return;
@@ -1602,7 +1622,8 @@
       await handoffJob(
         job,
         say,
-        `캐릭터 대사 ${collected.selectedCharacterCount}개를 ${maxLength}글자 이하로 요약해요.`
+        `캐릭터 대사 ${collected.selectedCharacterCount}개를 ${maxLength}글자 이하로 요약해요.`,
+        transferTab
       );
       button.disabled = false;
     }
