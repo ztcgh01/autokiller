@@ -1459,39 +1459,88 @@
     }
 
     function collectConversation(characterLimit = GENERATION_DEFAULT_CHARACTER_COUNT) {
-      const items = [];
-      const historyMessages = [...document.querySelectorAll('[data-sentry-component="ChatMessage"]')];
+      const turns = [];
+
+      // ZETA의 ChatMessage DOM 순서는 환경에 따라 최신→과거로 잡힐 수 있으므로
+      // 실제 화면 세로 위치를 기준으로 과거→최신 순서로 정렬한다.
+      const historyMessages = [...document.querySelectorAll('[data-sentry-component="ChatMessage"]')]
+        .map((message, domIndex) => ({
+          message,
+          domIndex,
+          top: message.getBoundingClientRect().top
+        }))
+        .sort((a, b) => {
+          if (a.top !== b.top) return a.top - b.top;
+          return a.domIndex - b.domIndex;
+        })
+        .map(entry => entry.message);
+
       historyMessages.forEach(message => {
-        conversationItemsFrom(message).forEach(item => items.push({
+        const items = conversationItemsFrom(message).map(item => ({
           ...item,
           messageId: message.id || ''
         }));
+        if (!items.length) return;
+
+        const hasCharacter = items.some(item => item.role === 'character');
+        const hasUser = items.some(item => item.role === 'user');
+
+        turns.push({
+          id: message.id || `history-${turns.length}`,
+          kind: hasCharacter ? 'character' : (hasUser ? 'user' : 'context'),
+          items
+        });
       });
 
+      // 현재 활성 후보 답변 전체를 최신 캐릭터 응답 1턴으로 취급한다.
       const lastMessage = document.querySelector('[data-sentry-component="LastChatMessage"]');
       if (lastMessage) {
         const activeSlide = lastMessage.querySelector('.swiper-slide-active');
         const activeCandidate = activeSlide?.querySelector('[data-sentry-component="Candidate"]') ||
           lastMessage.querySelector('[data-sentry-component="Candidate"]');
-        conversationItemsFrom(activeCandidate, 'active-candidate').forEach(item => items.push({
+
+        const candidateItems = conversationItemsFrom(activeCandidate, 'active-candidate').map(item => ({
           ...item,
           messageId: 'last-active-candidate'
         }));
+
+        if (candidateItems.length) {
+          turns.push({
+            id: 'last-active-candidate',
+            kind: 'character',
+            items: candidateItems
+          });
+        }
       }
 
       const requestedCharacterCount = Math.max(1, characterLimit);
-      const availableCharacterCount = items.filter(item => item.role === 'character').length;
-      let selectedCharacterCount = 0;
-      let startIndex = items.length;
+      const availableCharacterCount = turns.filter(turn => turn.kind === 'character').length;
 
-      for (let index = items.length - 1; index >= 0; index -= 1) {
-        startIndex = index;
-        if (items[index].role === 'character') selectedCharacterCount += 1;
+      let selectedCharacterCount = 0;
+      let firstSelectedTurnIndex = -1;
+
+      // 가장 최신 캐릭터 응답부터 N턴을 센다.
+      for (let index = turns.length - 1; index >= 0; index -= 1) {
+        if (turns[index].kind !== 'character') continue;
+        selectedCharacterCount += 1;
+        firstSelectedTurnIndex = index;
         if (selectedCharacterCount >= requestedCharacterCount) break;
       }
 
+      // 선택된 가장 오래된 캐릭터 턴 바로 앞의 user/context 턴도 맥락으로 포함한다.
+      // 그 이전 캐릭터 턴까지는 넘어가지 않는다.
+      let startTurnIndex = firstSelectedTurnIndex >= 0 ? firstSelectedTurnIndex : turns.length;
+      for (let index = startTurnIndex - 1; index >= 0; index -= 1) {
+        if (turns[index].kind === 'character') break;
+        startTurnIndex = index;
+      }
+
+      const selectedTurns = turns.slice(startTurnIndex);
+      const items = selectedTurns.flatMap(turn => turn.items);
+
       return {
-        items: items.slice(startIndex),
+        items,
+        turns: selectedTurns,
         requestedCharacterCount,
         availableCharacterCount,
         selectedCharacterCount
@@ -1500,9 +1549,9 @@
 
     function generationPrompt(conversation, extraInstruction = '') {
       const transcript = conversation.map(item => {
-        if (item.role === 'user') return `user:\n${item.text}`;
-        if (item.role === 'narrator') return `지문:\n${item.text}`;
-        return `${item.speaker}:\n${item.text}`;
+        if (item.role === 'user') return `@user: ${item.text}`;
+        if (item.role === 'narrator') return `@: ${item.text}`;
+        return `@${item.speaker}: ${item.text}`;
       }).join('\n\n');
 
       return [
@@ -1540,7 +1589,7 @@
         );
         if (!proceed) {
           closeTransferTab(transferTab);
-          say(`현재 캐릭터 대사 ${collected.availableCharacterCount}개 로드됨 · 더 스크롤한 뒤 생성을 다시 눌러주세요.`);
+          say(`현재 캐릭터 턴 ${collected.availableCharacterCount}개 로드됨 · 더 스크롤한 뒤 생성을 다시 눌러주세요.`);
           button.disabled = false;
           return;
         }
@@ -1558,7 +1607,7 @@
       await handoffJob(
         job,
         say,
-        `캐릭터 대사 ${collected.selectedCharacterCount}개를 포함한 말풍선 ${conversation.length}개를 GPT로 전달해요.`,
+        `캐릭터 응답 ${collected.selectedCharacterCount}턴을 포함한 말풍선 ${conversation.length}개를 GPT로 전달해요.`,
         transferTab
       );
       button.disabled = false;
@@ -1566,9 +1615,9 @@
 
     function summaryPrompt(conversation, maxLength, instruction = DEFAULT_SUMMARY_INSTRUCTION) {
       const transcript = conversation.map(item => {
-        if (item.role === 'user') return `user:\n${item.text}`;
-        if (item.role === 'narrator') return `지문:\n${item.text}`;
-        return `${item.speaker}:\n${item.text}`;
+        if (item.role === 'user') return `@user: ${item.text}`;
+        if (item.role === 'narrator') return `@: ${item.text}`;
+        return `@${item.speaker}: ${item.text}`;
       }).join('\n\n');
 
       return [
@@ -1603,7 +1652,7 @@
         );
         if (!proceed) {
           closeTransferTab(transferTab);
-          say(`현재 캐릭터 대사 ${collected.availableCharacterCount}개 로드됨 · 더 스크롤한 뒤 요약을 다시 눌러주세요.`);
+          say(`현재 캐릭터 턴 ${collected.availableCharacterCount}개 로드됨 · 더 스크롤한 뒤 요약을 다시 눌러주세요.`);
           button.disabled = false;
           return;
         }
@@ -1622,7 +1671,7 @@
       await handoffJob(
         job,
         say,
-        `캐릭터 대사 ${collected.selectedCharacterCount}개를 ${maxLength}글자 이하로 요약해요.`,
+        `캐릭터 응답 ${collected.selectedCharacterCount}턴을 ${maxLength}글자 이하로 요약해요.`,
         transferTab
       );
       button.disabled = false;
