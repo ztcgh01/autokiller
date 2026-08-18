@@ -14,6 +14,7 @@
     const JOB_KEY = 'zk_current_job_v2';
     const RESPONSE_KEY = 'zk_response_v2';
     const CONVERSATION_KEY = 'zk_gpt_conversation_v3';
+    const VERIFIED_CONVERSATION_KEY = 'zk_gpt_conversation_verified_v1';
     const GPT_SESSION_KEY = 'zk_core_gpt_job_v1';
     const NEW_TAB_MODE_KEY = 'zk_new_tab_mode_v1';
     const TEMPORARY_CHAT_KEY = 'zk_temporary_chat_mode_v1';
@@ -157,6 +158,48 @@
       return localStorage.getItem(TEMPORARY_CHAT_KEY) === 'true';
     }
 
+    function isConversationUrl(value) {
+      try {
+        const url = new URL(value);
+        return /(^|\.)chatgpt\.com$/i.test(url.hostname) && /\/c\//.test(url.pathname);
+      } catch (error) {
+        return false;
+      }
+    }
+
+    function isTargetGptStartUrl(value = location.href) {
+      try {
+        const current = new URL(value);
+        const target = new URL(GPT_URL);
+        return current.hostname === target.hostname &&
+          (current.pathname === target.pathname || current.pathname.startsWith(`${target.pathname}/`));
+      } catch (error) {
+        return false;
+      }
+    }
+
+    async function readVerifiedConversationUrl() {
+      const saved = await sharedStorage.get(VERIFIED_CONVERSATION_KEY, null);
+      if (!saved || typeof saved !== 'object') return '';
+      if (saved.gptUrl !== GPT_URL || !isConversationUrl(saved.url)) return '';
+      return saved.url;
+    }
+
+    async function saveVerifiedConversationUrl(url) {
+      if (!isConversationUrl(url)) return;
+      await sharedStorage.set(CONVERSATION_KEY, url);
+      await sharedStorage.set(VERIFIED_CONVERSATION_KEY, {
+        url,
+        gptUrl: GPT_URL,
+        verifiedAt: Date.now()
+      });
+    }
+
+    async function clearGptConversationConnection() {
+      await sharedStorage.delete(CONVERSATION_KEY);
+      await sharedStorage.delete(VERIFIED_CONVERSATION_KEY);
+    }
+
     function openTransferTab() {
       if (BOOKMARKLET_MODE || localStorage.getItem(NEW_TAB_MODE_KEY) === 'false') return null;
       if (ONECLICK_BRIDGE && !ONECLICK_IOS) return null;
@@ -182,22 +225,24 @@
         return;
       }
       if (ONECLICK_BRIDGE) {
-        // 임시채팅 ON일 때는 저장된 일반 대화 URL을 쓰지 않고 Custom GPT 시작 주소로 새 임시채팅을 연다.
-        // OFF로 돌아오면 기존에 저장해 둔 일반 대화 URL을 다시 그대로 재사용한다.
+        // 임시채팅 OFF에서는 '역병킬러에서 시작한 것이 확인된 일반 대화'만 재사용한다.
+        // 기존 zk_gpt_conversation_v3 값만 있는 구버전 연결은 신뢰하지 않고 /g/ 시작 주소에서 새로 연결한다.
+        const verifiedConversationUrl = temporaryChat ? '' : await readVerifiedConversationUrl();
+        const conversationUrl = temporaryChat ? baseGptUrl : (verifiedConversationUrl || GPT_URL);
+        const targetGptVerified = !!verifiedConversationUrl;
+
         const iosWantsNewTab = ONECLICK_IOS && localStorage.getItem(NEW_TAB_MODE_KEY) !== 'false';
         const iosPreparedTab = iosWantsNewTab && preparedTab && !preparedTab.closed ? preparedTab : null;
         const outgoingJob = {
           ...job,
           newTab: ONECLICK_IOS ? !!iosPreparedTab : true,
           oneclick: true,
-          temporaryChat
+          temporaryChat,
+          targetGptVerified
         };
         // ChatGPT가 초기 로딩 중 URL hash를 지워도 작업을 잃지 않도록 GM 공용 저장소에도 보관한다.
         await sharedStorage.set(JOB_KEY, outgoingJob);
         const payload = encodeTransfer(outgoingJob);
-        const conversationUrl = temporaryChat
-          ? baseGptUrl
-          : (window.__AUTO_KILLER_CONVERSATION_URL__ || await sharedStorage.get(CONVERSATION_KEY, GPT_URL));
         const target = `${browserOnlyGptUrl(conversationUrl.split('#')[0])}#akjob=${encodeURIComponent(payload)}`;
         say(temporaryChat ? `${userscriptMessage} 임시채팅으로 여는 중…` : userscriptMessage);
         if (ONECLICK_IOS) {
@@ -219,13 +264,13 @@
         return;
       }
       const transferTab = preparedTab || openTransferTab();
+      const verifiedConversationUrl = temporaryChat ? '' : await readVerifiedConversationUrl();
+      const conversationUrl = temporaryChat ? baseGptUrl : (verifiedConversationUrl || GPT_URL);
+      const targetGptVerified = !!verifiedConversationUrl;
       const outgoingJob = transferTab && !transferTab.closed
-        ? { ...job, newTab: true, temporaryChat }
-        : { ...job, temporaryChat };
+        ? { ...job, newTab: true, temporaryChat, targetGptVerified }
+        : { ...job, temporaryChat, targetGptVerified };
       await sharedStorage.set(JOB_KEY, outgoingJob);
-      const conversationUrl = temporaryChat
-        ? baseGptUrl
-        : await sharedStorage.get(CONVERSATION_KEY, GPT_URL);
       const target = `${browserOnlyGptUrl(conversationUrl.split('#')[0])}#zkjob=${encodeURIComponent(job.id)}`;
       say(temporaryChat ? `${userscriptMessage} 임시채팅으로 여는 중…` : userscriptMessage);
       await waitForScriptableBridge();
@@ -619,6 +664,55 @@
         const newTabHelp = document.createElement('div');
         newTabHelp.textContent = 'ON이면 GPT를 새 탭에서 열어 ZETA 화면을 그대로 유지합니다. OFF면 현재 탭에서 GPT로 이동합니다.';
         newTabHelp.style.cssText = 'margin-top:-3px;padding:0 2px;color:#8a9099;font:500 10px/1.35 system-ui,sans-serif';
+        const connectionResetRow = document.createElement('div');
+        connectionResetRow.style.cssText = 'display:flex;align-items:center;gap:7px;padding:6px;border:1px solid #e5e7eb;border-radius:7px;background:#fff';
+        const connectionResetText = document.createElement('span');
+        connectionResetText.textContent = 'GPT 대화 연결 초기화';
+        connectionResetText.style.cssText = 'flex:1;color:#4b5563;font:650 11px/1.25 system-ui,sans-serif';
+        const connectionResetButton = makeButton('초기화', '#f7f7f8', '#5f6670');
+        connectionResetButton.style.cssText += 'padding:5px 8px';
+        connectionResetRow.append(connectionResetText, connectionResetButton);
+
+        const connectionResetHelp = document.createElement('div');
+        connectionResetHelp.textContent = '일반채팅(임시채팅 OFF)에서 역병킬러 대신 일반 ChatGPT가 열리거나, ChatGPT에서 기존 역병킬러 대화를 직접 삭제한 뒤 연결이 꼬였을 때 사용하세요. 저장된 GPT 대화 연결 주소만 지우며 검토·생성·요약 설정과 프롬프트는 그대로 유지됩니다. 초기화 후 다음 작업은 역병킬러에서 새 일반 대화를 만들고, 정상 연결된 대화만 다시 저장합니다.';
+        connectionResetHelp.style.cssText = 'margin-top:-3px;padding:0 2px;color:#8a9099;font:500 10px/1.4 system-ui,sans-serif;word-break:keep-all';
+
+        let connectionResetArmed = false;
+        let connectionResetTimer = null;
+        connectionResetButton.onclick = async () => {
+          if (!connectionResetArmed) {
+            connectionResetArmed = true;
+            connectionResetButton.textContent = '한 번 더';
+            say('GPT 대화 연결만 초기화하려면 버튼을 한 번 더 눌러주세요.');
+            if (connectionResetTimer) clearTimeout(connectionResetTimer);
+            connectionResetTimer = setTimeout(() => {
+              connectionResetArmed = false;
+              connectionResetButton.textContent = '초기화';
+            }, 5000);
+            return;
+          }
+
+          connectionResetArmed = false;
+          if (connectionResetTimer) clearTimeout(connectionResetTimer);
+          connectionResetTimer = null;
+          connectionResetButton.disabled = true;
+
+          try {
+            await clearGptConversationConnection();
+            connectionResetButton.textContent = '완료';
+            say('GPT 대화 연결을 초기화했어요. 다음 일반채팅 작업은 역병킬러에서 새 대화를 만들어요.');
+            setTimeout(() => {
+              connectionResetButton.textContent = '초기화';
+              connectionResetButton.disabled = false;
+            }, 1400);
+          } catch (error) {
+            console.error('[AUTO_KILLER Core] GPT 대화 연결 초기화 실패', error);
+            connectionResetButton.textContent = '실패';
+            connectionResetButton.disabled = false;
+            say('GPT 대화 연결 초기화에 실패했어요.', true);
+            setTimeout(() => { connectionResetButton.textContent = '초기화'; }, 1400);
+          }
+        };
         compactExpand = makeButton('□', '#fff'); compactExpand.style.display = 'none'; compactExpand.dataset.restorePanel = 'true'; compactExpand.title = '간편 모드 종료';
         normalOnlyControls.push(openSettings, auto); compactOnlyControls.push(compactExpand);
 
@@ -657,7 +751,7 @@
         const promptContent = document.createElement('textarea'); promptContent.placeholder = '내용 — 예: 첫 문단을 더 짧게 정리해줘.'; promptContent.rows = 2;
         promptContent.style.cssText = 'color-scheme:light;appearance:none;width:100%;box-sizing:border-box;resize:vertical;border:1px solid #d1d5db;border-radius:7px;padding:7px;background:#fff;color:#1f2937;font:500 11px/1.35 system-ui,sans-serif;outline:none;user-select:text';
         const generationCountRow = document.createElement('label'); generationCountRow.style.cssText = 'display:flex;align-items:center;gap:6px;padding:5px;border:1px solid #e5e7eb;border-radius:7px;background:#fff';
-        const generationCountText = document.createElement('span'); generationCountText.textContent = '불러올 캐릭터 대사 수'; generationCountText.style.cssText = 'flex:1;color:#4b5563;font:650 11px/1.2 system-ui,sans-serif';
+        const generationCountText = document.createElement('span'); generationCountText.textContent = '불러올 캐릭터 응답 턴 수'; generationCountText.style.cssText = 'flex:1;color:#4b5563;font:650 11px/1.2 system-ui,sans-serif';
         const savedGenerationCount = Number.parseInt(localStorage.getItem(GENERATION_CHARACTER_COUNT_KEY) || '', 10);
         const generationCountInput = document.createElement('input'); generationCountInput.type = 'number'; generationCountInput.min = '1'; generationCountInput.step = '1'; generationCountInput.value = String(Number.isFinite(savedGenerationCount) && savedGenerationCount > 0 ? savedGenerationCount : GENERATION_DEFAULT_CHARACTER_COUNT);
         generationCountInput.style.cssText = 'color-scheme:light;appearance:auto;width:62px;box-sizing:border-box;border:1px solid #d1d5db;border-radius:6px;padding:5px 6px;background:#fff;color:#1f2937;font:650 11px/1.2 system-ui,sans-serif;outline:none;user-select:text';
@@ -668,7 +762,7 @@
         });
         generationCountRow.append(generationCountText, generationCountInput);
         const summaryCountRow = document.createElement('label'); summaryCountRow.style.cssText = generationCountRow.style.cssText;
-        const summaryCountText = document.createElement('span'); summaryCountText.textContent = '요약할 캐릭터 대사 수'; summaryCountText.style.cssText = generationCountText.style.cssText;
+        const summaryCountText = document.createElement('span'); summaryCountText.textContent = '요약할 캐릭터 응답 턴 수'; summaryCountText.style.cssText = generationCountText.style.cssText;
         const savedSummaryCount = Number.parseInt(localStorage.getItem(SUMMARY_CHARACTER_COUNT_KEY) || '', 10);
         const summaryCountInput = document.createElement('input'); summaryCountInput.type = 'number'; summaryCountInput.min = '1'; summaryCountInput.step = '1'; summaryCountInput.value = String(Number.isFinite(savedSummaryCount) && savedSummaryCount > 0 ? savedSummaryCount : SUMMARY_DEFAULT_CHARACTER_COUNT); summaryCountInput.style.cssText = generationCountInput.style.cssText;
         summaryCountInput.addEventListener('change', () => { const value = Math.max(1, Number.parseInt(summaryCountInput.value, 10) || SUMMARY_DEFAULT_CHARACTER_COUNT); summaryCountInput.value = String(value); localStorage.setItem(SUMMARY_CHARACTER_COUNT_KEY, String(value)); });
@@ -1113,7 +1207,7 @@
         }
 
         settings.append(
-          categoryLabel('GPT 연결 설정'), temporaryChatRow, temporaryChatHelp, newTabRow, newTabHelp,
+          categoryLabel('GPT 연결 설정'), temporaryChatRow, temporaryChatHelp, newTabRow, newTabHelp, connectionResetRow, connectionResetHelp,
           categoryLabel('검토 설정'), sectionLabel('기본 검토 프롬프트'), builtinList, sectionLabel('사용자 검토 프롬프트'), presetList, customOption.label, promptTitle, promptContent, saveQuestion,
           categoryLabel('생성 설정'), generationCountRow, generationPromptSettings.element,
           categoryLabel('요약 설정'), summaryLengthRow, summaryCountRow, summaryInstructionLabel, summaryInstructionInput,
@@ -1584,7 +1678,7 @@
 
       if (collected.availableCharacterCount < collected.requestedCharacterCount) {
         const proceed = window.confirm(
-          `캐릭터 대사를 ${collected.requestedCharacterCount}개 불러오도록 설정했지만, 현재 로드된 분량에서는 ${collected.availableCharacterCount}개만 찾았어요.\n\n` +
+          `캐릭터 응답을 ${collected.requestedCharacterCount}턴 불러오도록 설정했지만, 현재 로드된 분량에서는 ${collected.availableCharacterCount}턴만 찾았어요.\n\n` +
           '현재 분량으로 그냥 진행하려면 확인을 누르세요.\n더 위로 스크롤해 대화를 로드한 뒤 다시 시도하려면 취소를 누르세요.'
         );
         if (!proceed) {
@@ -1647,7 +1741,7 @@
 
       if (collected.availableCharacterCount < collected.requestedCharacterCount) {
         const proceed = window.confirm(
-          `캐릭터 대사를 ${collected.requestedCharacterCount}개 요약하도록 설정했지만, 현재 로드된 분량에서는 ${collected.availableCharacterCount}개만 찾았어요.\n\n` +
+          `캐릭터 응답을 ${collected.requestedCharacterCount}턴 요약하도록 설정했지만, 현재 로드된 분량에서는 ${collected.availableCharacterCount}턴만 찾았어요.\n\n` +
           '현재 분량으로 그냥 진행하려면 확인을 누르세요.\n더 위로 스크롤해 대화를 로드한 뒤 다시 시도하려면 취소를 누르세요.'
         );
         if (!proceed) {
@@ -1842,10 +1936,10 @@
 
       const finish = async finalText => {
         let conversationUrl = '';
-        if (!job.temporaryChat) {
+        if (!job.temporaryChat && job.targetGptVerified === true) {
           try {
             const currentUrl = location.href.split('#')[0];
-            if (/\/c\//.test(new URL(currentUrl).pathname)) conversationUrl = currentUrl;
+            if (isConversationUrl(currentUrl)) conversationUrl = currentUrl;
           } catch (error) {}
         }
 
@@ -1871,7 +1965,7 @@
         }
 
         try {
-          if (conversationUrl) await sharedStorage.set(CONVERSATION_KEY, conversationUrl);
+          if (conversationUrl) await saveVerifiedConversationUrl(conversationUrl);
 
           // iPhone/iPad의 같은 탭 OneClick은 GM 저장과 URL hash를 함께 사용한다.
           if (job.oneclick && !job.newTab) {
@@ -1972,6 +2066,13 @@
 
     async function runOnGpt(job, say, state) {
       if (!job || !job.id || gptBusy || job.id === lastJobId) return;
+
+      // 새 일반 대화가 역병킬러 /g/ 주소에서 시작했거나,
+      // 이전에 검증된 역병킬러 /c/ 대화를 재사용한 작업만 연결 저장을 허용한다.
+      job = {
+        ...job,
+        targetGptVerified: job.targetGptVerified === true || isTargetGptStartUrl(location.href)
+      };
       if (job.schema !== JOB_SCHEMA) {
         if (!job.bookmarklet) await sharedStorage.delete(JOB_KEY);
         try { sessionStorage.removeItem(GPT_SESSION_KEY); } catch (error) {}
