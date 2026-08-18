@@ -673,9 +673,44 @@
         connectionResetButton.style.cssText += 'padding:5px 8px';
         connectionResetRow.append(connectionResetText, connectionResetButton);
 
+        const connectionResetHelpWrap = document.createElement('div');
+        connectionResetHelpWrap.style.cssText = 'margin-top:-3px;padding:0 2px;color:#8a9099;font:500 10px/1.4 system-ui,sans-serif;word-break:keep-all';
+
+        const connectionResetHelpTop = document.createElement('div');
+        connectionResetHelpTop.style.cssText = 'display:flex;align-items:flex-start;gap:6px';
+
         const connectionResetHelp = document.createElement('div');
         connectionResetHelp.textContent = '일반채팅(임시채팅 OFF)에서 역병킬러 대신 일반 ChatGPT가 열리거나, ChatGPT에서 기존 역병킬러 대화를 직접 삭제한 뒤 연결이 꼬였을 때 사용하세요. 저장된 GPT 대화 연결 주소만 지우며 검토·생성·요약 설정과 프롬프트는 그대로 유지됩니다. 초기화 후 다음 작업은 역병킬러에서 새 일반 대화를 만들고, 정상 연결된 대화만 다시 저장합니다.';
-        connectionResetHelp.style.cssText = 'margin-top:-3px;padding:0 2px;color:#8a9099;font:500 10px/1.4 system-ui,sans-serif;word-break:keep-all';
+        connectionResetHelp.style.cssText = 'flex:1;display:-webkit-box;-webkit-box-orient:vertical;-webkit-line-clamp:1;overflow:hidden';
+
+        const connectionResetHelpToggle = document.createElement('button');
+        connectionResetHelpToggle.type = 'button';
+        connectionResetHelpToggle.textContent = '⌄';
+        connectionResetHelpToggle.setAttribute('aria-label', '설명 더보기');
+        connectionResetHelpToggle.style.cssText = 'flex:0 0 auto;margin-top:-2px;padding:0 3px;border:0;background:transparent;color:#7b828c;font:800 16px/1 system-ui,sans-serif;cursor:pointer';
+
+        let connectionResetHelpExpanded = false;
+        connectionResetHelpToggle.onclick = () => {
+          connectionResetHelpExpanded = !connectionResetHelpExpanded;
+
+          if (connectionResetHelpExpanded) {
+            connectionResetHelp.style.display = 'block';
+            connectionResetHelp.style.webkitLineClamp = 'unset';
+            connectionResetHelp.style.overflow = 'visible';
+            connectionResetHelpToggle.textContent = '⌃';
+            connectionResetHelpToggle.setAttribute('aria-label', '설명 접기');
+          } else {
+            connectionResetHelp.style.display = '-webkit-box';
+            connectionResetHelp.style.webkitBoxOrient = 'vertical';
+            connectionResetHelp.style.webkitLineClamp = '1';
+            connectionResetHelp.style.overflow = 'hidden';
+            connectionResetHelpToggle.textContent = '⌄';
+            connectionResetHelpToggle.setAttribute('aria-label', '설명 더보기');
+          }
+        };
+
+        connectionResetHelpTop.append(connectionResetHelp, connectionResetHelpToggle);
+        connectionResetHelpWrap.append(connectionResetHelpTop);
 
         let connectionResetArmed = false;
         let connectionResetTimer = null;
@@ -1207,7 +1242,7 @@
         }
 
         settings.append(
-          categoryLabel('GPT 연결 설정'), temporaryChatRow, temporaryChatHelp, newTabRow, newTabHelp, connectionResetRow, connectionResetHelp,
+          categoryLabel('GPT 연결 설정'), temporaryChatRow, temporaryChatHelp, newTabRow, newTabHelp, connectionResetRow, connectionResetHelpWrap,
           categoryLabel('검토 설정'), sectionLabel('기본 검토 프롬프트'), builtinList, sectionLabel('사용자 검토 프롬프트'), presetList, customOption.label, promptTitle, promptContent, saveQuestion,
           categoryLabel('생성 설정'), generationCountRow, generationPromptSettings.element,
           categoryLabel('요약 설정'), summaryLengthRow, summaryCountRow, summaryInstructionLabel, summaryInstructionInput,
