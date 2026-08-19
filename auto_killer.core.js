@@ -727,36 +727,46 @@
               'align-items:center',
               'justify-content:center',
               'padding:18px',
-              'background:rgba(0,0,0,.38)',
-              'box-sizing:border-box'
+              'box-sizing:border-box',
+              'isolation:isolate'
             ].join(';');
+            overlay.style.setProperty('background-color', 'rgba(0,0,0,.56)', 'important');
+            overlay.style.setProperty('backdrop-filter', 'blur(1px)', 'important');
+            overlay.style.setProperty('-webkit-backdrop-filter', 'blur(1px)', 'important');
 
             const dialog = document.createElement('div');
             dialog.setAttribute('role', 'dialog');
             dialog.setAttribute('aria-modal', 'true');
             dialog.setAttribute('aria-label', 'GPT 대화 연결 초기화 확인');
             dialog.style.cssText = [
+              'position:relative',
+              'z-index:1',
               'width:min(360px,100%)',
               'box-sizing:border-box',
-              'padding:18px',
-              'border:1px solid #e2e5e9',
+              'padding:20px',
+              'border:1px solid #d9dee5',
               'border-radius:14px',
-              'background:#fff',
-              'box-shadow:0 12px 36px rgba(0,0,0,.22)',
+              'box-shadow:0 14px 40px rgba(0,0,0,.28)',
               'color:#303640',
-              'font-family:system-ui,sans-serif'
+              'font-family:system-ui,sans-serif',
+              'overflow:hidden'
             ].join(';');
+            dialog.style.setProperty('background', '#ffffff', 'important');
+            dialog.style.setProperty('background-color', '#ffffff', 'important');
+            dialog.style.setProperty('opacity', '1', 'important');
 
             const title = document.createElement('div');
             title.textContent = '연결 초기화를 진행하시겠습니까?';
-            title.style.cssText = 'font:800 15px/1.35 system-ui,sans-serif;margin-bottom:9px';
+            title.style.cssText = 'display:block;margin:0 0 10px 0;color:#20242a;font:800 15px/1.4 system-ui,sans-serif;white-space:normal;word-break:keep-all';
+            title.style.setProperty('background-color', 'transparent', 'important');
 
             const message = document.createElement('div');
             message.textContent = 'GPT 대화 연결만 재설정됩니다. 검토·생성·요약 설정과 저장된 프롬프트는 건드리지 않으니 걱정하지 않으셔도 됩니다. 초기화 후 다음 일반채팅 작업에서 역병킬러 연결을 새로 만듭니다.';
-            message.style.cssText = 'color:#6f7680;font:500 11px/1.55 system-ui,sans-serif;word-break:keep-all;margin-bottom:15px';
+            message.style.cssText = 'display:block;margin:0 0 16px 0;color:#69717c;font:500 11px/1.6 system-ui,sans-serif;white-space:normal;word-break:keep-all;overflow-wrap:anywhere';
+            message.style.setProperty('background-color', 'transparent', 'important');
 
             const actions = document.createElement('div');
-            actions.style.cssText = 'display:flex;justify-content:flex-end;gap:8px';
+            actions.style.cssText = 'display:flex;justify-content:flex-end;align-items:center;gap:8px;margin-top:2px';
 
             const noButton = makeButton('아니오', '#f7f7f8', '#5f6670');
             const yesButton = makeButton('네', '#eef2f6', '#343b45');
