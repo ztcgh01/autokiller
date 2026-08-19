@@ -1,14 +1,14 @@
 /* AUTO_KILLER remote core
- * Unified remote core: 2.25.3.2
+ * Unified remote core: 2.25.3.3
  * Temporary Chat: every job starts a fresh temporary chat.
  */
 (function () {
   'use strict';
   window.__AUTO_KILLER_REMOTE_CORE_LOADED__ = true;
-  window.__AUTO_KILLER_REMOTE_CORE_VERSION__ = '2.25.3.2';
+  window.__AUTO_KILLER_REMOTE_CORE_VERSION__ = '2.25.3.3';
 
     'use strict';
-    const SCRIPT_VERSION = '2.25.3.2';
+    const SCRIPT_VERSION = '2.25.3.3';
     const GPT_URL = 'https://chatgpt.com/g/g-6a1099bd986881918e0c582d35aafb1d-yeogbyeongkilreo';
     const PANEL_ID = 'zk-tm-unified-panel-v4';
     const JOB_KEY = 'zk_current_job_v2';
@@ -226,10 +226,11 @@
       }
       if (ONECLICK_BRIDGE) {
         // 임시채팅 OFF에서는 '역병킬러에서 시작한 것이 확인된 일반 대화'만 재사용한다.
-        // 기존 zk_gpt_conversation_v3 값만 있는 구버전 연결은 신뢰하지 않고 /g/ 시작 주소에서 새로 연결한다.
+        // 검증된 /c 대화가 없고 Android OneClick인 최초 연결은 루트 → /g/ 2단계 안전 진입을 사용한다.
         const verifiedConversationUrl = temporaryChat ? '' : await readVerifiedConversationUrl();
         const conversationUrl = temporaryChat ? baseGptUrl : (verifiedConversationUrl || GPT_URL);
         const targetGptVerified = !!verifiedConversationUrl;
+        const androidNeedsSafeGptEntry = !ONECLICK_IOS && !temporaryChat && !verifiedConversationUrl;
 
         const iosWantsNewTab = ONECLICK_IOS && localStorage.getItem(NEW_TAB_MODE_KEY) !== 'false';
         const iosPreparedTab = iosWantsNewTab && preparedTab && !preparedTab.closed ? preparedTab : null;
@@ -238,12 +239,15 @@
           newTab: ONECLICK_IOS ? !!iosPreparedTab : true,
           oneclick: true,
           temporaryChat,
-          targetGptVerified
+          targetGptVerified,
+          androidNeedsSafeGptEntry
         };
         // ChatGPT가 초기 로딩 중 URL hash를 지워도 작업을 잃지 않도록 GM 공용 저장소에도 보관한다.
         await sharedStorage.set(JOB_KEY, outgoingJob);
         const payload = encodeTransfer(outgoingJob);
-        const target = `${browserOnlyGptUrl(conversationUrl.split('#')[0])}#akjob=${encodeURIComponent(payload)}`;
+        const target = androidNeedsSafeGptEntry
+          ? `${browserOnlyGptUrl('https://chatgpt.com/')}#akjob=${encodeURIComponent(payload)}`
+          : `${browserOnlyGptUrl(conversationUrl.split('#')[0])}#akjob=${encodeURIComponent(payload)}`;
         say(temporaryChat ? `${userscriptMessage} 임시채팅으로 여는 중…` : userscriptMessage);
         if (ONECLICK_IOS) {
           if (iosPreparedTab) {
@@ -608,7 +612,7 @@
       const close = makeButton('×', '#f3f4f6', '#4b5563'); close.style.cssText += 'padding:1px 5px;border-radius:6px;font-size:11px'; close.onclick = () => host.remove();
       header.append(dots, title, minimize, compactToggle, close);
 
-      // 2.25 구형 로더 → 2.25.3.2 통합 로더 1회 재설치 안내.
+      // 2.25 구형 로더 → 2.25.3.3 통합 로더 1회 재설치 안내.
       // 새 로더는 core 실행 전에 __AUTO_KILLER_STORAGE_BRIDGE__를 true로 세팅하므로 안내가 자동으로 사라진다.
       const needsLoaderMigration = mode === 'zeta'
         && ONECLICK_BRIDGE
@@ -616,10 +620,10 @@
       const loaderMigrationNotice = document.createElement('div');
       loaderMigrationNotice.style.cssText = `display:${needsLoaderMigration ? 'flex' : 'none'};flex-direction:column;gap:6px;padding:8px 9px;border:1px solid #e6c96f;border-radius:9px;background:#fff8dc;color:#4d3f18;font:650 11px/1.4 system-ui,sans-serif`;
       const loaderMigrationText = document.createElement('div');
-      loaderMigrationText.innerHTML = '<b>⚠ AUTO_KILLER 중요 업데이트</b><br>새 자동 업데이트 방식 적용을 위해 <b>2.25.3.2을 한 번 다시 설치</b>해주세요.';
+      loaderMigrationText.innerHTML = '<b>⚠ AUTO_KILLER 중요 업데이트</b><br>새 자동 업데이트 방식 적용을 위해 <b>2.25.3.3을 한 번 다시 설치</b>해주세요.';
       const loaderMigrationButton = document.createElement('button');
       loaderMigrationButton.type = 'button';
-      loaderMigrationButton.textContent = '2.25.3.2 업데이트 설치';
+      loaderMigrationButton.textContent = '2.25.3.3 업데이트 설치';
       loaderMigrationButton.style.cssText = 'color-scheme:light;appearance:none;align-self:flex-start;border:1px solid #d5b952;border-radius:7px;padding:6px 9px;background:#fff;color:#4d3f18;font:800 11px/1.15 system-ui,sans-serif;cursor:pointer';
       loaderMigrationButton.onclick = () => {
         try {
@@ -712,40 +716,90 @@
         connectionResetHelpTop.append(connectionResetHelp, connectionResetHelpToggle);
         connectionResetHelpWrap.append(connectionResetHelpTop);
 
-        let connectionResetArmed = false;
-        let connectionResetTimer = null;
-        connectionResetButton.onclick = async () => {
-          if (!connectionResetArmed) {
-            connectionResetArmed = true;
-            connectionResetButton.textContent = '한 번 더';
-            say('GPT 대화 연결만 초기화하려면 버튼을 한 번 더 눌러주세요.');
-            if (connectionResetTimer) clearTimeout(connectionResetTimer);
-            connectionResetTimer = setTimeout(() => {
-              connectionResetArmed = false;
-              connectionResetButton.textContent = '초기화';
-            }, 5000);
-            return;
-          }
+        function showConnectionResetConfirm() {
+          return new Promise(resolve => {
+            const overlay = document.createElement('div');
+            overlay.style.cssText = [
+              'position:fixed',
+              'inset:0',
+              'z-index:2147483647',
+              'display:flex',
+              'align-items:center',
+              'justify-content:center',
+              'padding:18px',
+              'background:rgba(0,0,0,.38)',
+              'box-sizing:border-box'
+            ].join(';');
 
-          connectionResetArmed = false;
-          if (connectionResetTimer) clearTimeout(connectionResetTimer);
-          connectionResetTimer = null;
+            const dialog = document.createElement('div');
+            dialog.setAttribute('role', 'dialog');
+            dialog.setAttribute('aria-modal', 'true');
+            dialog.setAttribute('aria-label', 'GPT 대화 연결 초기화 확인');
+            dialog.style.cssText = [
+              'width:min(360px,100%)',
+              'box-sizing:border-box',
+              'padding:18px',
+              'border:1px solid #e2e5e9',
+              'border-radius:14px',
+              'background:#fff',
+              'box-shadow:0 12px 36px rgba(0,0,0,.22)',
+              'color:#303640',
+              'font-family:system-ui,sans-serif'
+            ].join(';');
+
+            const title = document.createElement('div');
+            title.textContent = '연결 초기화를 진행하시겠습니까?';
+            title.style.cssText = 'font:800 15px/1.35 system-ui,sans-serif;margin-bottom:9px';
+
+            const message = document.createElement('div');
+            message.textContent = 'GPT 대화 연결만 재설정됩니다. 검토·생성·요약 설정과 저장된 프롬프트는 건드리지 않으니 걱정하지 않으셔도 됩니다. 초기화 후 다음 일반채팅 작업에서 역병킬러 연결을 새로 만듭니다.';
+            message.style.cssText = 'color:#6f7680;font:500 11px/1.55 system-ui,sans-serif;word-break:keep-all;margin-bottom:15px';
+
+            const actions = document.createElement('div');
+            actions.style.cssText = 'display:flex;justify-content:flex-end;gap:8px';
+
+            const noButton = makeButton('아니오', '#f7f7f8', '#5f6670');
+            const yesButton = makeButton('네', '#eef2f6', '#343b45');
+            noButton.style.cssText += 'min-width:68px;padding:7px 12px';
+            yesButton.style.cssText += 'min-width:68px;padding:7px 12px;font-weight:800';
+
+            const finish = value => {
+              overlay.remove();
+              resolve(value);
+            };
+
+            noButton.onclick = () => finish(false);
+            yesButton.onclick = () => finish(true);
+            overlay.onclick = event => {
+              if (event.target === overlay) finish(false);
+            };
+
+            actions.append(noButton, yesButton);
+            dialog.append(title, message, actions);
+            overlay.append(dialog);
+            document.documentElement.append(overlay);
+
+            requestAnimationFrame(() => yesButton.focus());
+          });
+        }
+
+        connectionResetButton.onclick = async () => {
+          const confirmed = await showConnectionResetConfirm();
+          if (!confirmed) return;
+
           connectionResetButton.disabled = true;
+          connectionResetButton.textContent = '초기화 중';
 
           try {
             await clearGptConversationConnection();
-            connectionResetButton.textContent = '완료';
+            connectionResetButton.textContent = '초기화';
+            connectionResetButton.disabled = false;
             say('GPT 대화 연결을 초기화했어요. 다음 일반채팅 작업은 역병킬러에서 새 대화를 만들어요.');
-            setTimeout(() => {
-              connectionResetButton.textContent = '초기화';
-              connectionResetButton.disabled = false;
-            }, 1400);
           } catch (error) {
             console.error('[AUTO_KILLER Core] GPT 대화 연결 초기화 실패', error);
-            connectionResetButton.textContent = '실패';
+            connectionResetButton.textContent = '초기화';
             connectionResetButton.disabled = false;
             say('GPT 대화 연결 초기화에 실패했어요.', true);
-            setTimeout(() => { connectionResetButton.textContent = '초기화'; }, 1400);
           }
         };
         compactExpand = makeButton('□', '#fff'); compactExpand.style.display = 'none'; compactExpand.dataset.restorePanel = 'true'; compactExpand.title = '간편 모드 종료';
@@ -2143,8 +2197,44 @@
       checkCompletion().catch(error => console.error('[AUTO_KILLER Core] 초기 완료 감지 오류', error));
     }
 
+    async function ensureAndroidSafeGptEntry(job, say) {
+      if (!job?.androidNeedsSafeGptEntry || job.temporaryChat || ONECLICK_IOS) return true;
+
+      // 이미 역병킬러 /g/ 페이지라면 그대로 진행.
+      if (isTargetGptStartUrl(location.href)) {
+        job.targetGptVerified = true;
+        return true;
+      }
+
+      // 루트 chatgpt.com에서 작업 payload를 받은 경우, 같은 Firefox 탭 안에서
+      // universal-link 개입 없이 역병킬러 /g/ 주소로 한 번 더 이동한다.
+      let current;
+      try { current = new URL(location.href); }
+      catch (error) { return false; }
+
+      const isChatGptRoot =
+        /(^|\.)chatgpt\.com$/i.test(current.hostname) &&
+        (current.pathname === '/' || current.pathname === '');
+
+      if (isChatGptRoot) {
+        say('역병킬러 연결 중…');
+        const next = browserOnlyGptUrl(GPT_URL);
+        location.replace(next);
+        return false;
+      }
+
+      // /g/ 역병킬러가 아닌 다른 ChatGPT 경로로 떨어졌다면 일반 GPT에는 절대 제출하지 않는다.
+      console.warn('[AUTO_KILLER Core] 역병킬러 안전 진입 실패', location.href);
+      say('역병킬러 연결에 실패했어요. 일반 ChatGPT에는 전송하지 않았어요.', true);
+      return false;
+    }
+
     async function runOnGpt(job, say, state) {
       if (!job || !job.id || gptBusy || job.id === lastJobId) return;
+
+      // Android 최초 연결은 chatgpt.com 루트에서 payload를 받은 뒤 같은 탭에서 /g/ 역병킬러로 이동한다.
+      // /g/ 역병킬러가 확인되지 않으면 일반 ChatGPT에는 절대 프롬프트를 제출하지 않는다.
+      if (!(await ensureAndroidSafeGptEntry(job, say))) return;
 
       // 새 일반 대화가 역병킬러 /g/ 주소에서 시작했거나,
       // 이전에 검증된 역병킬러 /c/ 대화를 재사용한 작업만 연결 저장을 허용한다.
