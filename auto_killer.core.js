@@ -1,14 +1,14 @@
 /* AUTO_KILLER remote core
- * Unified remote core: 2.25.3.7
+ * Unified remote core: 2.25.3.8
  * Temporary Chat: every job starts a fresh temporary chat.
  */
 (function () {
   'use strict';
   window.__AUTO_KILLER_REMOTE_CORE_LOADED__ = true;
-  window.__AUTO_KILLER_REMOTE_CORE_VERSION__ = '2.25.3.7';
+  window.__AUTO_KILLER_REMOTE_CORE_VERSION__ = '2.25.3.8';
 
     'use strict';
-    const SCRIPT_VERSION = '2.25.3.7';
+    const SCRIPT_VERSION = '2.25.3.8';
     const GPT_URL = 'https://chatgpt.com/g/g-6a1099bd986881918e0c582d35aafb1d-yeogbyeongkilreo';
     const PANEL_ID = 'zk-tm-unified-panel-v4';
     const JOB_KEY = 'zk_current_job_v2';
@@ -623,7 +623,7 @@
       const close = makeButton('×', '#f3f4f6', '#4b5563'); close.style.cssText += 'padding:1px 5px;border-radius:6px;font-size:11px'; close.onclick = () => host.remove();
       header.append(dots, title, minimize, compactToggle, close);
 
-      // 2.25 구형 로더 → 2.25.3.7 통합 로더 1회 재설치 안내.
+      // 2.25 구형 로더 → 2.25.3.8 통합 로더 1회 재설치 안내.
       // 새 로더는 core 실행 전에 __AUTO_KILLER_STORAGE_BRIDGE__를 true로 세팅하므로 안내가 자동으로 사라진다.
       const needsLoaderMigration = mode === 'zeta'
         && ONECLICK_BRIDGE
@@ -631,10 +631,10 @@
       const loaderMigrationNotice = document.createElement('div');
       loaderMigrationNotice.style.cssText = `display:${needsLoaderMigration ? 'flex' : 'none'};flex-direction:column;gap:6px;padding:8px 9px;border:1px solid #e6c96f;border-radius:9px;background:#fff8dc;color:#4d3f18;font:650 11px/1.4 system-ui,sans-serif`;
       const loaderMigrationText = document.createElement('div');
-      loaderMigrationText.innerHTML = '<b>⚠ AUTO_KILLER 중요 업데이트</b><br>새 자동 업데이트 방식 적용을 위해 <b>2.25.3.7을 한 번 다시 설치</b>해주세요.';
+      loaderMigrationText.innerHTML = '<b>⚠ AUTO_KILLER 중요 업데이트</b><br>새 자동 업데이트 방식 적용을 위해 <b>2.25.3.8을 한 번 다시 설치</b>해주세요.';
       const loaderMigrationButton = document.createElement('button');
       loaderMigrationButton.type = 'button';
-      loaderMigrationButton.textContent = '2.25.3.7 업데이트 설치';
+      loaderMigrationButton.textContent = '2.25.3.8 업데이트 설치';
       loaderMigrationButton.style.cssText = 'color-scheme:light;appearance:none;align-self:flex-start;border:1px solid #d5b952;border-radius:7px;padding:6px 9px;background:#fff;color:#4d3f18;font:800 11px/1.15 system-ui,sans-serif;cursor:pointer';
       loaderMigrationButton.onclick = () => {
         try {
@@ -1516,6 +1516,45 @@
       return { say, state: row.querySelector('button'), showSummaryResult };
     }
 
+    function findChatInput() {
+      const usable = element => element
+        && element.isConnected
+        && !element.disabled
+        && element.getClientRects().length > 0
+        && !element.closest('[data-sentry-component="EditModeInputPanelContent"]');
+
+      // 현재/기존 ZETA에서 확인되는 일반 채팅 입력창 식별자 우선
+      const exactSelectors = [
+        'textarea[data-testid="chat-message-input"]',
+        'textarea[testid="chat-message-input"]',
+        '[contenteditable="true"][data-testid="chat-message-input"]',
+        '[contenteditable="true"][testid="chat-message-input"]'
+      ];
+
+      for (const selector of exactSelectors) {
+        const candidate = [...document.querySelectorAll(selector)].reverse().find(usable);
+        if (candidate) return candidate;
+      }
+
+      // 일부 계정/UI 변형: name="message"만 남는 경우.
+      // 수정 모드 패널 내부 textarea는 반드시 제외한다.
+      const byName = [...document.querySelectorAll('textarea[name="message"]')]
+        .reverse()
+        .find(element => usable(element)
+          && !element.closest('[data-sentry-component="EditModeInputPanelContent"]')
+          && element.getAttribute('aria-label') !== 'Save edit');
+      if (byName) return byName;
+
+      // iOS/일부 UI 변형 대비 contenteditable fallback.
+      // 수정 모드와 명시적인 GPT/설정 입력 영역은 제외하고, 보이는 textbox만 제한적으로 허용한다.
+      const editable = [...document.querySelectorAll('[contenteditable="true"][role="textbox"]')]
+        .reverse()
+        .find(element => usable(element)
+          && !element.closest('[data-sentry-component="EditModeInputPanelContent"]')
+          && !element.closest('#portal-container'));
+      return editable || null;
+    }
+
     function findEditor() {
       // 기존 ZETA 구조: 정상 사용자 경로는 그대로 유지
       const editors = [...document.querySelectorAll('#portal-container textarea[name="message"]')]
@@ -1950,7 +1989,22 @@
         result = result.trimStart().replace(/^글(?:\s+|(?=@))/, '').trimStart();
         const atIndex = result.indexOf('@');
         if (atIndex > 0) result = result.slice(atIndex);
+
+        // 생성 결과는 기존 턴의 수정창을 절대 사용하지 않는다.
+        // 자동저장 설정과 무관하게 일반 채팅 입력창에 결과만 넣고,
+        // 전송/저장 버튼은 누르지 않은 채 사용자의 직접 확인·전송을 기다린다.
+        say('일반 채팅 입력창을 찾는 중…');
+        const chatInput = await waitForResult(findChatInput, 30000, 250);
+        if (!chatInput) { say('30초 동안 일반 채팅 입력창을 찾지 못했어요.', true); return false; }
+
+        say('새 장면을 일반 채팅 입력창에 넣는 중…');
+        const inserted = await insertPrompt(chatInput, result);
+        if (!inserted) { say('일반 채팅 입력창에 새 장면을 넣지 못했어요.', true); return false; }
+
+        say('새 장면을 일반 채팅 입력창에 넣었어요. 내용을 확인한 뒤 직접 전송해주세요.');
+        return true;
       }
+
       say('제타 화면이 완전히 로딩되기를 기다리는 중…');
       let edit = await waitForResult(findVisibleEditButton, 30000, 300);
       if (!edit) { say('30초 동안 수정 버튼을 찾지 못했어요.', true); return false; }
@@ -1973,7 +2027,6 @@
       editor.dispatchEvent(new InputEvent('input', { bubbles: true, inputType: 'insertText', data: result }));
       editor.dispatchEvent(new Event('change', { bubbles: true }));
       await sleep(500);
-      if (type === 'generate') { say('새 장면을 편집창에 넣었어요. 확인한 뒤 보라색 체크 버튼을 직접 눌러주세요.'); return true; }
       if (localStorage.getItem('zk_autosave') !== 'true') { say('수정된 답변을 적용하려면 보라색 체크 버튼을 직접 눌러주세요.'); return true; }
       say('저장 버튼이 활성화되기를 기다리는 중…');
       const save = await waitForResult(() => {
