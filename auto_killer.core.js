@@ -1,14 +1,14 @@
 /* AUTO_KILLER remote core
- * Unified remote core: 2.25.3.8
+ * Unified remote core: 2.25.3.9
  * Temporary Chat: every job starts a fresh temporary chat.
  */
 (function () {
   'use strict';
   window.__AUTO_KILLER_REMOTE_CORE_LOADED__ = true;
-  window.__AUTO_KILLER_REMOTE_CORE_VERSION__ = '2.25.3.8';
+  window.__AUTO_KILLER_REMOTE_CORE_VERSION__ = '2.25.3.9';
 
     'use strict';
-    const SCRIPT_VERSION = '2.25.3.8';
+    const SCRIPT_VERSION = '2.25.3.9';
     const GPT_URL = 'https://chatgpt.com/g/g-6a1099bd986881918e0c582d35aafb1d-yeogbyeongkilreo';
     const PANEL_ID = 'zk-tm-unified-panel-v4';
     const JOB_KEY = 'zk_current_job_v2';
@@ -623,7 +623,7 @@
       const close = makeButton('×', '#f3f4f6', '#4b5563'); close.style.cssText += 'padding:1px 5px;border-radius:6px;font-size:11px'; close.onclick = () => host.remove();
       header.append(dots, title, minimize, compactToggle, close);
 
-      // 2.25 구형 로더 → 2.25.3.8 통합 로더 1회 재설치 안내.
+      // 2.25 구형 로더 → 2.25.3.9 통합 로더 1회 재설치 안내.
       // 새 로더는 core 실행 전에 __AUTO_KILLER_STORAGE_BRIDGE__를 true로 세팅하므로 안내가 자동으로 사라진다.
       const needsLoaderMigration = mode === 'zeta'
         && ONECLICK_BRIDGE
@@ -631,10 +631,10 @@
       const loaderMigrationNotice = document.createElement('div');
       loaderMigrationNotice.style.cssText = `display:${needsLoaderMigration ? 'flex' : 'none'};flex-direction:column;gap:6px;padding:8px 9px;border:1px solid #e6c96f;border-radius:9px;background:#fff8dc;color:#4d3f18;font:650 11px/1.4 system-ui,sans-serif`;
       const loaderMigrationText = document.createElement('div');
-      loaderMigrationText.innerHTML = '<b>⚠ AUTO_KILLER 중요 업데이트</b><br>새 자동 업데이트 방식 적용을 위해 <b>2.25.3.8을 한 번 다시 설치</b>해주세요.';
+      loaderMigrationText.innerHTML = '<b>⚠ AUTO_KILLER 중요 업데이트</b><br>새 자동 업데이트 방식 적용을 위해 <b>2.25.3.9을 한 번 다시 설치</b>해주세요.';
       const loaderMigrationButton = document.createElement('button');
       loaderMigrationButton.type = 'button';
-      loaderMigrationButton.textContent = '2.25.3.8 업데이트 설치';
+      loaderMigrationButton.textContent = '2.25.3.9 업데이트 설치';
       loaderMigrationButton.style.cssText = 'color-scheme:light;appearance:none;align-self:flex-start;border:1px solid #d5b952;border-radius:7px;padding:6px 9px;background:#fff;color:#4d3f18;font:800 11px/1.15 system-ui,sans-serif;cursor:pointer';
       loaderMigrationButton.onclick = () => {
         try {
@@ -2058,10 +2058,45 @@
       return turn?.getAttribute('data-turn-id') || turn?.getAttribute('data-turn-id-container') || '';
     }
 
-    function assistantText(turn) {
+    function writingBlockRpText(message) {
+      const editor = message?.querySelector(
+        '[data-writing-block="true"] [data-writing-block-fullscreen-editor-region="true"], ' +
+        '[data-writing-block="true"] .ProseMirror'
+      );
+      if (!editor) return '';
+
+      const serialize = node => {
+        if (!node) return '';
+        if (node.nodeType === Node.TEXT_NODE) return node.nodeValue || '';
+        if (node.nodeType !== Node.ELEMENT_NODE) return '';
+
+        const tag = node.tagName.toLowerCase();
+        if (tag === 'br') return '\n';
+
+        const inner = [...node.childNodes].map(serialize).join('');
+        if (tag === 'em' || tag === 'i') return `*${inner}*`;
+        if (tag === 'p') return `${inner}\n\n`;
+        return inner;
+      };
+
+      return [...editor.childNodes]
+        .map(serialize)
+        .join('')
+        .replace(/\n{3,}/g, '\n\n')
+        .trim();
+    }
+
+    function assistantText(turn, preserveRpFormatting = false) {
       if (!turn) return '';
       const message = turn.querySelector('[data-message-author-role="assistant"]');
-      const content = message?.querySelector('.markdown') || message?.querySelector('[class*="markdown"]') || message;
+      if (!message) return '';
+
+      if (preserveRpFormatting) {
+        const writingBlockText = writingBlockRpText(message);
+        if (writingBlockText) return writingBlockText;
+      }
+
+      const content = message.querySelector('.markdown') || message.querySelector('[class*="markdown"]') || message;
       return content?.innerText?.trim() || '';
     }
 
@@ -2228,7 +2263,7 @@
         if (document.querySelector('button[data-testid="stop-button"]')) return;
         const copy = answer.querySelector('button[data-testid="copy-turn-action-button"]');
         if (!copy || copy.disabled) return;
-        const firstText = assistantText(answer);
+        const firstText = assistantText(answer, job.type === 'review' || job.type === 'generate');
         if (!firstText || confirmTimer) return;
 
         confirmTimer = setTimeout(async () => {
@@ -2240,7 +2275,7 @@
           if (document.querySelector('button[data-testid="stop-button"]')) return;
           const latestCopy = latest.querySelector('button[data-testid="copy-turn-action-button"]');
           if (!latestCopy || latestCopy.disabled) return;
-          const finalText = assistantText(latest);
+          const finalText = assistantText(latest, job.type === 'review' || job.type === 'generate');
           if (!finalText || finalText !== firstText) return;
           finished = true;
           cleanup();
