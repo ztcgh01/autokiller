@@ -1,14 +1,14 @@
 /* AUTO_KILLER remote core
- * Unified remote core: 2.25.3.9
+ * Unified remote core: 2.25.4.0
  * Temporary Chat: every job starts a fresh temporary chat.
  */
 (function () {
   'use strict';
   window.__AUTO_KILLER_REMOTE_CORE_LOADED__ = true;
-  window.__AUTO_KILLER_REMOTE_CORE_VERSION__ = '2.25.3.9';
+  window.__AUTO_KILLER_REMOTE_CORE_VERSION__ = '2.25.4.0';
 
     'use strict';
-    const SCRIPT_VERSION = '2.25.3.9';
+    const SCRIPT_VERSION = '2.25.4.0';
     const GPT_URL = 'https://chatgpt.com/g/g-6a1099bd986881918e0c582d35aafb1d-yeogbyeongkilreo';
     const PANEL_ID = 'zk-tm-unified-panel-v4';
     const JOB_KEY = 'zk_current_job_v2';
@@ -623,7 +623,7 @@
       const close = makeButton('×', '#f3f4f6', '#4b5563'); close.style.cssText += 'padding:1px 5px;border-radius:6px;font-size:11px'; close.onclick = () => host.remove();
       header.append(dots, title, minimize, compactToggle, close);
 
-      // 2.25 구형 로더 → 2.25.3.9 통합 로더 1회 재설치 안내.
+      // 2.25 구형 로더 → 2.25.4.0 통합 로더 1회 재설치 안내.
       // 새 로더는 core 실행 전에 __AUTO_KILLER_STORAGE_BRIDGE__를 true로 세팅하므로 안내가 자동으로 사라진다.
       const needsLoaderMigration = mode === 'zeta'
         && ONECLICK_BRIDGE
@@ -631,10 +631,10 @@
       const loaderMigrationNotice = document.createElement('div');
       loaderMigrationNotice.style.cssText = `display:${needsLoaderMigration ? 'flex' : 'none'};flex-direction:column;gap:6px;padding:8px 9px;border:1px solid #e6c96f;border-radius:9px;background:#fff8dc;color:#4d3f18;font:650 11px/1.4 system-ui,sans-serif`;
       const loaderMigrationText = document.createElement('div');
-      loaderMigrationText.innerHTML = '<b>⚠ AUTO_KILLER 중요 업데이트</b><br>새 자동 업데이트 방식 적용을 위해 <b>2.25.3.9을 한 번 다시 설치</b>해주세요.';
+      loaderMigrationText.innerHTML = '<b>⚠ AUTO_KILLER 중요 업데이트</b><br>새 자동 업데이트 방식 적용을 위해 <b>2.25.4.0을 한 번 다시 설치</b>해주세요.';
       const loaderMigrationButton = document.createElement('button');
       loaderMigrationButton.type = 'button';
-      loaderMigrationButton.textContent = '2.25.3.9 업데이트 설치';
+      loaderMigrationButton.textContent = '2.25.4.0 업데이트 설치';
       loaderMigrationButton.style.cssText = 'color-scheme:light;appearance:none;align-self:flex-start;border:1px solid #d5b952;border-radius:7px;padding:6px 9px;background:#fff;color:#4d3f18;font:800 11px/1.15 system-ui,sans-serif;cursor:pointer';
       loaderMigrationButton.onclick = () => {
         try {
@@ -1982,8 +1982,16 @@
       button.disabled = false;
     }
 
+    function cleanEscapedAsterisks(text) {
+      return String(text || '')
+        .replace(/\\\*/g, '*')
+        .replace(/\*\\/g, '*');
+    }
+
     async function applyToZeta(text, say, type = 'review') {
-      let result = text;
+      let result = (type === 'review' || type === 'generate')
+        ? cleanEscapedAsterisks(text)
+        : text;
       if (type === 'review' && !result.trimStart().startsWith('@')) { const index = result.indexOf('@'); if (index > -1) result = result.slice(index); }
       if (type === 'generate') {
         result = result.trimStart().replace(/^글(?:\s+|(?=@))/, '').trimStart();
