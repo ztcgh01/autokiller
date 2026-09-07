@@ -1,14 +1,14 @@
 /* AUTO_KILLER remote core
- * Unified remote core: 2.25.4.3
+ * Unified remote core: 2.25.4.4
  * Temporary Chat: every job starts a fresh temporary chat.
  */
 (function () {
   'use strict';
   window.__AUTO_KILLER_REMOTE_CORE_LOADED__ = true;
-  window.__AUTO_KILLER_REMOTE_CORE_VERSION__ = '2.25.4.3';
+  window.__AUTO_KILLER_REMOTE_CORE_VERSION__ = '2.25.4.4';
 
     'use strict';
-    const SCRIPT_VERSION = '2.25.4.3';
+    const SCRIPT_VERSION = '2.25.4.4';
     const GPT_URL = 'https://chatgpt.com/g/g-6a1099bd986881918e0c582d35aafb1d-yeogbyeongkilreo';
     const PANEL_ID = 'zk-tm-unified-panel-v4';
     const JOB_KEY = 'zk_current_job_v2';
@@ -42,7 +42,12 @@
     const DEFAULT_SUMMARY_INSTRUCTION = '유저노트용 서사 요약해줘. 글자수 제약에 맞춰 주요 서사를 간추리되 AI 채팅 앱이 사건의 흐름을 이해할 정도여야 해. 필요하면 특수문자나 이모지, 다른 언어 등을 적절하게 활용해도 좋아.';
     const SUMMARY_CHARACTER_BREAK_PROMPT_KEY = 'zk_summary_character_break_prompt_v1';
     const SUMMARY_CHARACTER_BREAK_ENABLED_KEY = 'zk_summary_character_break_enabled_v1';
+    const SUMMARY_CHARACTER_BREAK_DELETED_KEY = 'zk_summary_character_break_deleted_v1';
     const DEFAULT_SUMMARY_CHARACTER_BREAK_PROMPT = '지난 서사가 {{char}}가 반복해야할 행동양식이라고 착각하지 않게 지나간 일이라는 점 유의시켜서 현재에는 같은 행동을 반복하지 않도록 신경써줘.';
+    const SUMMARY_SAFETY_PROMPT_KEY = 'zk_summary_safety_prompt_v1';
+    const SUMMARY_SAFETY_ENABLED_KEY = 'zk_summary_safety_enabled_v1';
+    const SUMMARY_SAFETY_DELETED_KEY = 'zk_summary_safety_deleted_v1';
+    const DEFAULT_SUMMARY_SAFETY_PROMPT = '입력 내용 중 안전 정책상 그대로 재현하거나 자세히 다루기 어려운 표현이 있으면 해당 부분을 그대로 인용하거나 묘사하지 마.\n대신 문제되는 부분만 비노골적이고 비성적인 표현으로 축약·순화하거나 필요한 경우 생략한 뒤, 나머지 내용에 대한 요청된 작업을 계속 수행해줘.\n전체 요청을 거절하거나 중단하지 말고, 허용되는 범위의 결과만 완성해서 출력해줘.';
     const SUMMARY_DIRECT_PROMPT_KEY = 'zk_summary_direct_prompt_v1';
     const SUMMARY_DIRECT_ENABLED_KEY = 'zk_summary_direct_enabled_v1';
     const GENERATION_PROMPT_ORDER = ['length', 'progress', 'dialogue'];
@@ -628,7 +633,7 @@
       const close = makeButton('×', '#f3f4f6', '#4b5563'); close.style.cssText += 'padding:1px 5px;border-radius:6px;font-size:11px'; close.onclick = () => host.remove();
       header.append(dots, title, minimize, compactToggle, close);
 
-      // 2.25 구형 로더 → 2.25.4.3 통합 로더 1회 재설치 안내.
+      // 2.25 구형 로더 → 2.25.4.4 통합 로더 1회 재설치 안내.
       // 새 로더는 core 실행 전에 __AUTO_KILLER_STORAGE_BRIDGE__를 true로 세팅하므로 안내가 자동으로 사라진다.
       const needsLoaderMigration = mode === 'zeta'
         && ONECLICK_BRIDGE
@@ -636,10 +641,10 @@
       const loaderMigrationNotice = document.createElement('div');
       loaderMigrationNotice.style.cssText = `display:${needsLoaderMigration ? 'flex' : 'none'};flex-direction:column;gap:6px;padding:8px 9px;border:1px solid #e6c96f;border-radius:9px;background:#fff8dc;color:#4d3f18;font:650 11px/1.4 system-ui,sans-serif`;
       const loaderMigrationText = document.createElement('div');
-      loaderMigrationText.innerHTML = '<b>⚠ AUTO_KILLER 중요 업데이트</b><br>새 자동 업데이트 방식 적용을 위해 <b>2.25.4.3을 한 번 다시 설치</b>해주세요.';
+      loaderMigrationText.innerHTML = '<b>⚠ AUTO_KILLER 중요 업데이트</b><br>새 자동 업데이트 방식 적용을 위해 <b>2.25.4.4을 한 번 다시 설치</b>해주세요.';
       const loaderMigrationButton = document.createElement('button');
       loaderMigrationButton.type = 'button';
-      loaderMigrationButton.textContent = '2.25.4.3 업데이트 설치';
+      loaderMigrationButton.textContent = '2.25.4.4 업데이트 설치';
       loaderMigrationButton.style.cssText = 'color-scheme:light;appearance:none;align-self:flex-start;border:1px solid #d5b952;border-radius:7px;padding:6px 9px;background:#fff;color:#4d3f18;font:800 11px/1.15 system-ui,sans-serif;cursor:pointer';
       loaderMigrationButton.onclick = () => {
         try {
@@ -898,12 +903,13 @@
         let summaryCharacterBreakPrompt = localStorage.getItem(SUMMARY_CHARACTER_BREAK_PROMPT_KEY) || DEFAULT_SUMMARY_CHARACTER_BREAK_PROMPT;
         const summaryCharacterBreakSavedEnabled = localStorage.getItem(SUMMARY_CHARACTER_BREAK_ENABLED_KEY);
         let summaryCharacterBreakEnabled = summaryCharacterBreakSavedEnabled === null ? true : summaryCharacterBreakSavedEnabled === 'true';
+        let summaryCharacterBreakDeleted = localStorage.getItem(SUMMARY_CHARACTER_BREAK_DELETED_KEY) === 'true';
 
         const summaryCharacterBreakRow = document.createElement('div');
-        summaryCharacterBreakRow.style.cssText = 'display:flex;flex-wrap:wrap;align-items:center;gap:4px;padding:5px;border:1px solid #e5e7eb;border-radius:7px;background:#fff';
+        summaryCharacterBreakRow.style.cssText = `display:${summaryCharacterBreakDeleted ? 'none' : 'flex'};flex-wrap:wrap;align-items:center;gap:4px;padding:5px;border:1px solid #e5e7eb;border-radius:7px;background:#fff`;
         const summaryCharacterBreakCheck = document.createElement('input');
         summaryCharacterBreakCheck.type = 'checkbox';
-        summaryCharacterBreakCheck.checked = summaryCharacterBreakEnabled;
+        summaryCharacterBreakCheck.checked = !summaryCharacterBreakDeleted && summaryCharacterBreakEnabled;
         summaryCharacterBreakCheck.style.cssText = 'color-scheme:light;width:14px;height:14px;margin:0;accent-color:#6b7280;flex:none';
 
         const summaryCharacterBreakView = document.createElement('div');
@@ -918,6 +924,8 @@
 
         const summaryCharacterBreakEdit = makeButton('수정', '#f3f4f6', '#4b5563');
         summaryCharacterBreakEdit.style.cssText += 'padding:4px 6px;font-size:10px';
+        const summaryCharacterBreakDelete = makeButton('삭제', '#f3f4f6', '#6b7280');
+        summaryCharacterBreakDelete.style.cssText += 'padding:4px 6px;font-size:10px';
 
         const summaryCharacterBreakEditor = document.createElement('div');
         summaryCharacterBreakEditor.style.cssText = 'display:none;flex:0 0 100%;flex-direction:column;gap:4px;padding-top:5px;border-top:1px solid #f3f4f6';
@@ -953,7 +961,90 @@
           summaryCharacterBreakEditor.style.display = 'none';
           say('캐붕 방지 프롬프트를 저장했어요.');
         };
-        summaryCharacterBreakRow.append(summaryCharacterBreakCheck, summaryCharacterBreakView, summaryCharacterBreakEdit, summaryCharacterBreakEditor);
+        summaryCharacterBreakDelete.onclick = () => {
+          if (!window.confirm('「캐붕 방지 프롬프트」를 삭제할까요? 요약 설정 초기화에서 다시 복구할 수 있어요.')) return;
+          summaryCharacterBreakDeleted = true;
+          summaryCharacterBreakEnabled = false;
+          summaryCharacterBreakCheck.checked = false;
+          summaryCharacterBreakRow.style.display = 'none';
+          localStorage.setItem(SUMMARY_CHARACTER_BREAK_DELETED_KEY, 'true');
+          localStorage.setItem(SUMMARY_CHARACTER_BREAK_ENABLED_KEY, 'false');
+          say('캐붕 방지 프롬프트를 삭제했어요.');
+        };
+        summaryCharacterBreakRow.append(summaryCharacterBreakCheck, summaryCharacterBreakView, summaryCharacterBreakEdit, summaryCharacterBreakDelete, summaryCharacterBreakEditor);
+
+        let summarySafetyPrompt = localStorage.getItem(SUMMARY_SAFETY_PROMPT_KEY) || DEFAULT_SUMMARY_SAFETY_PROMPT;
+        const summarySafetySavedEnabled = localStorage.getItem(SUMMARY_SAFETY_ENABLED_KEY);
+        let summarySafetyEnabled = summarySafetySavedEnabled === null ? true : summarySafetySavedEnabled === 'true';
+        let summarySafetyDeleted = localStorage.getItem(SUMMARY_SAFETY_DELETED_KEY) === 'true';
+
+        const summarySafetyRow = document.createElement('div');
+        summarySafetyRow.style.cssText = `display:${summarySafetyDeleted ? 'none' : 'flex'};flex-wrap:wrap;align-items:center;gap:4px;padding:5px;border:1px solid #e5e7eb;border-radius:7px;background:#fff`;
+        const summarySafetyCheck = document.createElement('input');
+        summarySafetyCheck.type = 'checkbox';
+        summarySafetyCheck.checked = !summarySafetyDeleted && summarySafetyEnabled;
+        summarySafetyCheck.style.cssText = 'color-scheme:light;width:14px;height:14px;margin:0;accent-color:#6b7280;flex:none';
+
+        const summarySafetyView = document.createElement('div');
+        summarySafetyView.style.cssText = 'display:flex;min-width:0;flex:1;flex-direction:column;gap:1px';
+        const summarySafetyTitle = document.createElement('span');
+        summarySafetyTitle.textContent = '안전정책 프롬프트';
+        summarySafetyTitle.style.cssText = 'overflow:hidden;text-overflow:ellipsis;white-space:nowrap;font-weight:750;color:#374151';
+        const summarySafetyPreview = document.createElement('span');
+        summarySafetyPreview.textContent = summarySafetyPrompt;
+        summarySafetyPreview.style.cssText = 'overflow:hidden;text-overflow:ellipsis;white-space:nowrap;color:#9ca3af;font:500 10px/1.2 system-ui,sans-serif';
+        summarySafetyView.append(summarySafetyTitle, summarySafetyPreview);
+
+        const summarySafetyEdit = makeButton('수정', '#f3f4f6', '#4b5563');
+        summarySafetyEdit.style.cssText += 'padding:4px 6px;font-size:10px';
+        const summarySafetyDelete = makeButton('삭제', '#f3f4f6', '#6b7280');
+        summarySafetyDelete.style.cssText += 'padding:4px 6px;font-size:10px';
+
+        const summarySafetyEditor = document.createElement('div');
+        summarySafetyEditor.style.cssText = 'display:none;flex:0 0 100%;flex-direction:column;gap:4px;padding-top:5px;border-top:1px solid #f3f4f6';
+        const summarySafetyInput = document.createElement('textarea');
+        summarySafetyInput.rows = 5;
+        summarySafetyInput.value = summarySafetyPrompt;
+        summarySafetyInput.style.cssText = `${summaryInstructionInput.style.cssText};font-weight:500`;
+        const summarySafetyActions = document.createElement('div');
+        summarySafetyActions.style.cssText = 'display:flex;gap:4px';
+        const summarySafetySave = makeButton('저장', '#eceff1');
+        const summarySafetyCancel = makeButton('취소', '#f7f7f8');
+        summarySafetyActions.append(summarySafetySave, summarySafetyCancel);
+        summarySafetyEditor.append(summarySafetyInput, summarySafetyActions);
+
+        summarySafetyCheck.addEventListener('change', () => {
+          summarySafetyEnabled = summarySafetyCheck.checked;
+          localStorage.setItem(SUMMARY_SAFETY_ENABLED_KEY, String(summarySafetyEnabled));
+        });
+        summarySafetyEdit.onclick = () => {
+          summarySafetyInput.value = summarySafetyPrompt;
+          summarySafetyEditor.style.display = 'flex';
+        };
+        summarySafetyCancel.onclick = () => {
+          summarySafetyInput.value = summarySafetyPrompt;
+          summarySafetyEditor.style.display = 'none';
+        };
+        summarySafetySave.onclick = () => {
+          const value = summarySafetyInput.value.trim();
+          if (!value) { say('안전정책 프롬프트 내용을 입력해주세요.', true); return; }
+          summarySafetyPrompt = value;
+          summarySafetyPreview.textContent = value;
+          localStorage.setItem(SUMMARY_SAFETY_PROMPT_KEY, value);
+          summarySafetyEditor.style.display = 'none';
+          say('안전정책 프롬프트를 저장했어요.');
+        };
+        summarySafetyDelete.onclick = () => {
+          if (!window.confirm('「안전정책 프롬프트」를 삭제할까요? 요약 설정 초기화에서 다시 복구할 수 있어요.')) return;
+          summarySafetyDeleted = true;
+          summarySafetyEnabled = false;
+          summarySafetyCheck.checked = false;
+          summarySafetyRow.style.display = 'none';
+          localStorage.setItem(SUMMARY_SAFETY_DELETED_KEY, 'true');
+          localStorage.setItem(SUMMARY_SAFETY_ENABLED_KEY, 'false');
+          say('안전정책 프롬프트를 삭제했어요.');
+        };
+        summarySafetyRow.append(summarySafetyCheck, summarySafetyView, summarySafetyEdit, summarySafetyDelete, summarySafetyEditor);
 
         const summaryDirectLabel = document.createElement('label');
         summaryDirectLabel.style.cssText = 'display:flex;align-items:center;gap:5px;cursor:pointer';
@@ -980,7 +1071,8 @@
 
         const getSummaryExtraInstruction = () => {
           const parts = [];
-          if (summaryCharacterBreakCheck.checked && summaryCharacterBreakPrompt.trim()) parts.push(summaryCharacterBreakPrompt.trim());
+          if (!summaryCharacterBreakDeleted && summaryCharacterBreakCheck.checked && summaryCharacterBreakPrompt.trim()) parts.push(summaryCharacterBreakPrompt.trim());
+          if (!summarySafetyDeleted && summarySafetyCheck.checked && summarySafetyPrompt.trim()) parts.push(summarySafetyPrompt.trim());
           const direct = summaryDirectInput.value.trim();
           if (summaryDirectCheck.checked && direct) parts.push(direct);
           if (!parts.length) return '';
@@ -1316,13 +1408,27 @@
             localStorage.setItem(SUMMARY_MAX_LENGTH_KEY, String(SUMMARY_DEFAULT_MAX_LENGTH));
             localStorage.setItem(SUMMARY_INSTRUCTION_KEY, DEFAULT_SUMMARY_INSTRUCTION);
             summaryCharacterBreakPrompt = DEFAULT_SUMMARY_CHARACTER_BREAK_PROMPT;
+            summaryCharacterBreakEnabled = true;
+            summaryCharacterBreakDeleted = false;
             summaryCharacterBreakCheck.checked = true;
             summaryCharacterBreakInput.value = DEFAULT_SUMMARY_CHARACTER_BREAK_PROMPT;
             summaryCharacterBreakPreview.textContent = DEFAULT_SUMMARY_CHARACTER_BREAK_PROMPT;
+            summaryCharacterBreakRow.style.display = 'flex';
+            summarySafetyPrompt = DEFAULT_SUMMARY_SAFETY_PROMPT;
+            summarySafetyEnabled = true;
+            summarySafetyDeleted = false;
+            summarySafetyCheck.checked = true;
+            summarySafetyInput.value = DEFAULT_SUMMARY_SAFETY_PROMPT;
+            summarySafetyPreview.textContent = DEFAULT_SUMMARY_SAFETY_PROMPT;
+            summarySafetyRow.style.display = 'flex';
             summaryDirectCheck.checked = false;
             summaryDirectInput.value = '';
             localStorage.setItem(SUMMARY_CHARACTER_BREAK_PROMPT_KEY, DEFAULT_SUMMARY_CHARACTER_BREAK_PROMPT);
             localStorage.setItem(SUMMARY_CHARACTER_BREAK_ENABLED_KEY, 'true');
+            localStorage.setItem(SUMMARY_CHARACTER_BREAK_DELETED_KEY, 'false');
+            localStorage.setItem(SUMMARY_SAFETY_PROMPT_KEY, DEFAULT_SUMMARY_SAFETY_PROMPT);
+            localStorage.setItem(SUMMARY_SAFETY_ENABLED_KEY, 'true');
+            localStorage.setItem(SUMMARY_SAFETY_DELETED_KEY, 'false');
             localStorage.removeItem(SUMMARY_DIRECT_PROMPT_KEY);
             localStorage.setItem(SUMMARY_DIRECT_ENABLED_KEY, 'false');
             resetNames.push('요약');
@@ -1431,7 +1537,7 @@
           categoryLabel('GPT 연결 설정'), temporaryChatRow, temporaryChatHelp, newTabRow, newTabHelp, connectionResetRow, connectionResetHelpWrap,
           categoryLabel('검토 설정'), sectionLabel('기본 검토 프롬프트'), builtinList, sectionLabel('사용자 검토 프롬프트'), presetList, customOption.label, promptTitle, promptContent, saveQuestion,
           categoryLabel('생성 설정'), generationCountRow, generationPromptSettings.element,
-          categoryLabel('요약 설정'), summaryLengthRow, summaryCountRow, summaryInstructionLabel, summaryInstructionInput, summaryExtraLabel, summaryCharacterBreakRow, summaryDirectLabel, summaryDirectInput,
+          categoryLabel('요약 설정'), summaryLengthRow, summaryCountRow, summaryInstructionLabel, summaryInstructionInput, summaryExtraLabel, summaryCharacterBreakRow, summarySafetyRow, summaryDirectLabel, summaryDirectInput,
           categoryLabel('기본 프롬프트 복구 / 초기화'), resetArea
         );
         row.append(review, generate, summarize, openSettings, auto, compactExpand);
@@ -1829,234 +1935,187 @@
       });
     }
 
-    // ZETA 신형 가상 스크롤에서는 화면을 지나간 BodyView가 DOM에서 제거된다.
-    // 스크롤 중 보였던 턴을 message id 기준으로 가볍게 누적해 두고 생성/요약 시 재사용한다.
-    const VIRTUAL_BODY_SELECTOR = '[data-sentry-component="BodyView"][id^="message-MESSAGE-"]';
-    const VIRTUAL_USER_SELECTOR = '[data-sentry-component="RightTextContent"]';
-    const VIRTUAL_TURN_CACHE_MAX = 1000;
-    let virtualTurnCacheRoom = '';
-    let virtualTurnCache = new Map();
-    let virtualTurnOrder = [];
-    let virtualTurnIdDirection = 0;
-    let virtualTurnLastScrollTop = null;
-    let virtualTurnCaptureTimer = 0;
-    let virtualTurnDelayedTimers = [];
 
-    function currentZetaRoomKey() {
-      return `${location.origin}${location.pathname}`;
+    // ZETA 신형 가상 스크롤은 화면에서 벗어난 BodyView를 DOM에서 제거한다.
+    // 스크롤할 때 보였던 턴의 데이터만 가볍게 누적해, 생성/요약 시 현재 DOM에 남은 몇 턴만 읽는 문제를 막는다.
+    const virtualConversationCache = {
+      room: '',
+      order: [],
+      turns: new Map(),
+      lastScrollTop: null,
+      captureScheduled: false,
+      scrollContainer: null
+    };
+
+    function virtualConversationRoomKey() {
+      return location.href.split('#')[0];
     }
 
-    function virtualMessageOrdinal(id) {
-      const match = String(id || '').match(/^message-MESSAGE-(\d+)/);
-      if (!match) return null;
-      const value = Number(match[1]);
-      return Number.isSafeInteger(value) ? value : null;
+    function resetVirtualConversationCacheIfNeeded() {
+      const room = virtualConversationRoomKey();
+      if (virtualConversationCache.room === room) return;
+      virtualConversationCache.room = room;
+      virtualConversationCache.order = [];
+      virtualConversationCache.turns.clear();
+      virtualConversationCache.lastScrollTop = null;
+      virtualConversationCache.captureScheduled = false;
+      virtualConversationCache.scrollContainer = null;
     }
 
-    function virtualTextFingerprint(text) {
-      let hash = 2166136261;
-      const value = String(text || '').replace(/\s+/g, ' ').trim();
-      for (let index = 0; index < value.length; index += 1) {
-        hash ^= value.charCodeAt(index);
-        hash = Math.imul(hash, 16777619);
-      }
-      return (hash >>> 0).toString(36);
-    }
-
-    function virtualStandaloneUserId(view, orderedEntries, entryIndex) {
-      const ownMessageId = view.closest?.('[id^="message-MESSAGE-"]')?.id || '';
-      if (ownMessageId) return `${ownMessageId}:standalone-user`;
-
-      let previousBodyId = '';
-      let nextBodyId = '';
-      for (let index = entryIndex - 1; index >= 0; index -= 1) {
-        if (orderedEntries[index]?.message?.matches?.(VIRTUAL_BODY_SELECTOR)) {
-          previousBodyId = orderedEntries[index].message.id || '';
-          break;
-        }
-      }
-      for (let index = entryIndex + 1; index < orderedEntries.length; index += 1) {
-        if (orderedEntries[index]?.message?.matches?.(VIRTUAL_BODY_SELECTOR)) {
-          nextBodyId = orderedEntries[index].message.id || '';
-          break;
-        }
-      }
-
-      const text = cleanConversationText(view.querySelector?.('.chat') || view);
-      return `standalone-user:${previousBodyId || 'start'}:${nextBodyId || 'end'}:${virtualTextFingerprint(text)}`;
-    }
-
-    function activeVirtualBodyViews() {
-      return [...document.querySelectorAll(VIRTUAL_BODY_SELECTOR)].filter(body => {
-        const slide = body.closest('.swiper-slide');
-        return !slide || slide.classList.contains('swiper-slide-active');
-      });
-    }
-
-    function findVirtualScrollContainer() {
-      const seed = document.querySelector(VIRTUAL_BODY_SELECTOR) || document.querySelector(VIRTUAL_USER_SELECTOR);
-      let node = seed?.parentElement || null;
-      while (node && node !== document.documentElement) {
-        let style = null;
-        try { style = getComputedStyle(node); } catch (error) {}
-        if (style && node.scrollHeight > node.clientHeight + 20 && /auto|scroll|overlay/i.test(style.overflowY || '')) return node;
-        node = node.parentElement;
-      }
-      return null;
-    }
-
-    function normalizeVirtualTurn(message, source = 'history', forcedId = '') {
-      if (!message) return null;
-      const items = conversationItemsFrom(message, source).map(item => ({
+    function virtualMessageTurn(message) {
+      const items = conversationItemsFrom(message).map(item => ({
         ...item,
-        messageId: forcedId || message.id || ''
+        messageId: message.id || ''
       }));
       if (!items.length) return null;
       const hasCharacter = items.some(item => item.role === 'character');
       const hasUser = items.some(item => item.role === 'user');
+      const textKey = items.map(item => `${item.role}:${item.speaker}:${item.text}`).join('|');
+      const id = message.id || `virtual-${textKey}`;
       return {
-        id: forcedId || message.id || '',
+        id,
         kind: hasCharacter ? 'character' : (hasUser ? 'user' : 'context'),
         items
       };
     }
 
-    function inferVirtualIdDirection(orderedBodies) {
-      if (virtualTurnIdDirection || orderedBodies.length < 2) return;
-      for (let index = 1; index < orderedBodies.length; index += 1) {
-        const previous = virtualMessageOrdinal(orderedBodies[index - 1].id);
-        const current = virtualMessageOrdinal(orderedBodies[index].id);
-        if (previous === null || current === null || previous === current) continue;
-        // 화면 위→아래 순서를 그대로 과거→최신 순서로 사용한다.
-        virtualTurnIdDirection = previous < current ? 1 : -1;
-        return;
-      }
-    }
+    function mergeVirtualTurnIds(snapshotIds, scrollTop) {
+      const order = virtualConversationCache.order;
+      if (!snapshotIds.length) return;
 
-    function mergeVirtualTurnOrder(incomingIds, scrollTop = null) {
-      const incoming = [...new Set(incomingIds.filter(Boolean))];
-      if (!incoming.length) return;
-      if (!virtualTurnOrder.length) {
-        virtualTurnOrder = incoming;
+      if (!order.length) {
+        virtualConversationCache.order = [...snapshotIds];
+        virtualConversationCache.lastScrollTop = scrollTop;
         return;
       }
 
-      const existingSet = new Set(virtualTurnOrder);
-      const firstCommonIncomingIndex = incoming.findIndex(id => existingSet.has(id));
-      if (firstCommonIncomingIndex >= 0) {
-        const anchorId = incoming[firstCommonIncomingIndex];
-        const anchorIndex = virtualTurnOrder.indexOf(anchorId);
-        const prefix = incoming.slice(0, firstCommonIncomingIndex).filter(id => !existingSet.has(id));
-        if (prefix.length) virtualTurnOrder.splice(anchorIndex, 0, ...prefix);
+      const existing = new Set(order);
+      const hasOverlap = snapshotIds.some(id => existing.has(id));
 
-        let cursor = virtualTurnOrder.indexOf(anchorId) + 1;
-        for (const id of incoming.slice(firstCommonIncomingIndex + 1)) {
-          const existingIndex = virtualTurnOrder.indexOf(id);
-          if (existingIndex >= 0) {
-            cursor = existingIndex + 1;
-            continue;
-          }
-          virtualTurnOrder.splice(cursor, 0, id);
-          cursor += 1;
+      if (!hasOverlap) {
+        const previousTop = virtualConversationCache.lastScrollTop;
+        // flex-col-reverse ZETA에서는 과거 방향 스크롤이 보통 더 작은(더 음수인) scrollTop이다.
+        if (previousTop !== null && scrollTop < previousTop) {
+          virtualConversationCache.order = [...snapshotIds, ...order.filter(id => !snapshotIds.includes(id))];
+        } else {
+          virtualConversationCache.order = [...order, ...snapshotIds.filter(id => !existing.has(id))];
         }
+        virtualConversationCache.lastScrollTop = scrollTop;
         return;
       }
 
-      // 드물게 lazy-load 경계에서 겹치는 턴이 하나도 없는 경우.
-      // message id의 화면상 증가/감소 방향을 이미 알면 그 순서로 넣고,
-      // 아니면 flex-col-reverse 스크롤 방향을 이용해 앞/뒤를 결정한다.
-      if (virtualTurnIdDirection && [...virtualTurnOrder, ...incoming].every(id => virtualMessageOrdinal(id) !== null)) {
-        const compare = (left, right) => {
-          const a = virtualMessageOrdinal(left);
-          const b = virtualMessageOrdinal(right);
-          return virtualTurnIdDirection > 0 ? a - b : b - a;
-        };
-        virtualTurnOrder = [...new Set([...virtualTurnOrder, ...incoming])].sort(compare);
-        return;
-      }
+      snapshotIds.forEach((id, snapshotIndex) => {
+        if (virtualConversationCache.order.includes(id)) return;
 
-      if (Number.isFinite(scrollTop) && Number.isFinite(virtualTurnLastScrollTop) && scrollTop < virtualTurnLastScrollTop) {
-        virtualTurnOrder = [...incoming, ...virtualTurnOrder];
-      } else {
-        virtualTurnOrder.push(...incoming);
-      }
+        let previousId = '';
+        for (let index = snapshotIndex - 1; index >= 0; index -= 1) {
+          if (virtualConversationCache.order.includes(snapshotIds[index])) {
+            previousId = snapshotIds[index];
+            break;
+          }
+        }
+
+        if (previousId) {
+          const previousIndex = virtualConversationCache.order.indexOf(previousId);
+          virtualConversationCache.order.splice(previousIndex + 1, 0, id);
+          return;
+        }
+
+        let nextId = '';
+        for (let index = snapshotIndex + 1; index < snapshotIds.length; index += 1) {
+          if (virtualConversationCache.order.includes(snapshotIds[index])) {
+            nextId = snapshotIds[index];
+            break;
+          }
+        }
+
+        if (nextId) {
+          const nextIndex = virtualConversationCache.order.indexOf(nextId);
+          virtualConversationCache.order.splice(nextIndex, 0, id);
+        } else {
+          virtualConversationCache.order.push(id);
+        }
+      });
+
+      virtualConversationCache.lastScrollTop = scrollTop;
     }
 
-    function trimVirtualTurnCache() {
-      if (virtualTurnOrder.length <= VIRTUAL_TURN_CACHE_MAX) return;
-      const removeCount = virtualTurnOrder.length - VIRTUAL_TURN_CACHE_MAX;
-      const removed = virtualTurnOrder.splice(0, removeCount);
-      removed.forEach(id => virtualTurnCache.delete(id));
-    }
-
-    function captureVirtualConversationTurns() {
-      if (!/zeta-ai\.io$/i.test(location.hostname)) return;
-      const roomKey = currentZetaRoomKey();
-      if (virtualTurnCacheRoom !== roomKey) {
-        virtualTurnCacheRoom = roomKey;
-        virtualTurnCache = new Map();
-        virtualTurnOrder = [];
-        virtualTurnIdDirection = 0;
-        virtualTurnLastScrollTop = null;
-      }
+    function captureVirtualConversationSnapshot() {
+      resetVirtualConversationCacheIfNeeded();
 
       // 구형 ChatMessage 구조에서는 기존 수집기를 그대로 사용한다.
       if (document.querySelector('[data-sentry-component="ChatMessage"]')) return;
 
-      const bodies = activeVirtualBodyViews();
-      const standaloneUsers = [...document.querySelectorAll(VIRTUAL_USER_SELECTOR)]
-        .filter(view => !view.closest(VIRTUAL_BODY_SELECTOR));
-      const entries = [...bodies, ...standaloneUsers]
-        .map((message, domIndex) => ({ message, domIndex, top: message.getBoundingClientRect().top }))
-        .sort((a, b) => a.top !== b.top ? a.top - b.top : a.domIndex - b.domIndex);
-      if (!entries.length) return;
-
-      inferVirtualIdDirection(entries.map(entry => entry.message).filter(message => message.matches?.(VIRTUAL_BODY_SELECTOR)));
-      const scrollContainer = findVirtualScrollContainer();
-      const scrollTop = scrollContainer ? scrollContainer.scrollTop : null;
-      const incomingIds = [];
-
-      entries.forEach((entry, entryIndex) => {
-        const message = entry.message;
-        const forcedId = message.matches?.(VIRTUAL_BODY_SELECTOR)
-          ? (message.id || '')
-          : virtualStandaloneUserId(message, entries, entryIndex);
-        const turn = normalizeVirtualTurn(message, 'history', forcedId);
-        if (!turn?.id) return;
-        virtualTurnCache.set(turn.id, turn);
-        incomingIds.push(turn.id);
+      const bodyTurns = [...document.querySelectorAll(
+        '[data-sentry-component="BodyView"][id^="message-MESSAGE-"]'
+      )].filter(body => {
+        const slide = body.closest('.swiper-slide');
+        return !slide || slide.classList.contains('swiper-slide-active');
       });
 
-      mergeVirtualTurnOrder(incomingIds, scrollTop);
-      trimVirtualTurnCache();
-      if (Number.isFinite(scrollTop)) virtualTurnLastScrollTop = scrollTop;
+      const standaloneUsers = [...document.querySelectorAll(
+        '[data-sentry-component="RightTextContent"]'
+      )].filter(view => !view.closest('[data-sentry-component="BodyView"][id^="message-MESSAGE-"]'));
+
+      const messages = [...bodyTurns, ...standaloneUsers]
+        .map((message, domIndex) => ({
+          message,
+          domIndex,
+          top: message.getBoundingClientRect().top
+        }))
+        .sort((a, b) => a.top !== b.top ? a.top - b.top : a.domIndex - b.domIndex)
+        .map(entry => entry.message);
+
+      const snapshotTurns = messages
+        .map(virtualMessageTurn)
+        .filter(Boolean);
+
+      snapshotTurns.forEach(turn => virtualConversationCache.turns.set(turn.id, turn));
+
+      let scrollTop = 0;
+      const seed = bodyTurns[0] || standaloneUsers[0] || null;
+      let scrollContainer = seed?.parentElement || null;
+      while (scrollContainer && scrollContainer !== document.documentElement) {
+        const style = getComputedStyle(scrollContainer);
+        if (
+          scrollContainer.scrollHeight > scrollContainer.clientHeight + 20 &&
+          /auto|scroll|overlay/.test(style.overflowY || '')
+        ) break;
+        scrollContainer = scrollContainer.parentElement;
+      }
+      if (scrollContainer && scrollContainer !== document.documentElement) {
+        scrollTop = Number(scrollContainer.scrollTop) || 0;
+        if (virtualConversationCache.scrollContainer !== scrollContainer) {
+          try { virtualConversationCache.scrollContainer?.removeEventListener('scroll', scheduleVirtualConversationCapture); } catch (error) {}
+          virtualConversationCache.scrollContainer = scrollContainer;
+          scrollContainer.addEventListener('scroll', scheduleVirtualConversationCapture, { passive: true });
+        }
+      }
+
+      mergeVirtualTurnIds(snapshotTurns.map(turn => turn.id), scrollTop);
     }
 
     function scheduleVirtualConversationCapture() {
-      if (virtualTurnCaptureTimer) return;
-      virtualTurnCaptureTimer = window.setTimeout(() => {
-        virtualTurnCaptureTimer = 0;
-        captureVirtualConversationTurns();
-      }, 90);
-
-      virtualTurnDelayedTimers.forEach(timer => clearTimeout(timer));
-      virtualTurnDelayedTimers = [180, 520].map(delay => window.setTimeout(captureVirtualConversationTurns, delay));
+      if (virtualConversationCache.captureScheduled) return;
+      virtualConversationCache.captureScheduled = true;
+      requestAnimationFrame(() => {
+        virtualConversationCache.captureScheduled = false;
+        try { captureVirtualConversationSnapshot(); }
+        catch (error) { console.warn('[AUTO_KILLER Core] 가상 스크롤 대화 누적 실패', error); }
+      });
     }
 
-    function startVirtualConversationCapture() {
-      if (window.__AUTO_KILLER_VIRTUAL_TURN_CAPTURE_STARTED__ === true) return;
-      window.__AUTO_KILLER_VIRTUAL_TURN_CAPTURE_STARTED__ = true;
+    function installVirtualConversationCapture() {
+      resetVirtualConversationCacheIfNeeded();
+      captureVirtualConversationSnapshot();
+      // 페이지 렌더가 늦는 경우에도 실제 채팅 스크롤 컨테이너를 잡도록 짧게 재확인한다.
+      [350, 900, 1800].forEach(delay => setTimeout(scheduleVirtualConversationCapture, delay));
+      // 직접 스크롤 컨테이너 리스너가 붙기 전의 초기 스크롤도 놓치지 않는 가벼운 fallback.
       document.addEventListener('scroll', scheduleVirtualConversationCapture, true);
-      [0, 250, 800, 1600].forEach(delay => window.setTimeout(captureVirtualConversationTurns, delay));
-    }
-
-    function cachedVirtualTurns() {
-      captureVirtualConversationTurns();
-      const ordered = virtualTurnOrder
-        .map(id => virtualTurnCache.get(id))
-        .filter(Boolean);
-      if (ordered.length) return ordered;
-      return [];
+      window.addEventListener('focus', scheduleVirtualConversationCapture);
+      document.addEventListener('visibilitychange', () => {
+        if (!document.hidden) scheduleVirtualConversationCapture();
+      });
     }
 
     function collectConversation(characterLimit = GENERATION_DEFAULT_CHARACTER_COUNT) {
@@ -2066,28 +2125,16 @@
       // 실제 화면 세로 위치를 기준으로 과거→최신 순서로 정렬한다.
       const legacyHistoryMessages = [...document.querySelectorAll('[data-sentry-component="ChatMessage"]')];
 
-      let historyMessages = legacyHistoryMessages;
-
-      // iPhone Safari 신형 DOM fallback.
-      // 진단 로그에서 한 캐릭터 응답 턴은 message-MESSAGE-* id를 가진 BodyView 하나로 묶이고,
-      // 사용자 발화는 RightTextContent로 렌더링되는 것을 확인했다.
-      // 기존 ChatMessage가 하나라도 있으면 이 fallback은 사용하지 않아 Android/기존 구조를 보존한다.
-      if (!historyMessages.length) {
-        const cachedTurns = cachedVirtualTurns();
-        if (cachedTurns.length) {
-          // 신형 ZETA는 스크롤한 과거 턴을 DOM에서 제거하므로 현재 DOM만 읽으면 10여 턴에서 잘릴 수 있다.
-          // 스크롤 중 누적한 BodyView 턴을 그대로 사용한다.
-          turns.push(...cachedTurns);
-        } else {
-          const iosBodyTurns = activeVirtualBodyViews();
-          const iosStandaloneUserTurns = [...document.querySelectorAll(VIRTUAL_USER_SELECTOR)]
-            .filter(view => !view.closest(VIRTUAL_BODY_SELECTOR));
-          historyMessages = [...iosBodyTurns, ...iosStandaloneUserTurns];
-        }
-      }
-
-      if (!turns.length) {
-        historyMessages = historyMessages
+      if (!legacyHistoryMessages.length) {
+        // 신형 가상 스크롤 구조: 지금 화면에 남아 있는 BodyView뿐 아니라
+        // 사용자가 스크롤하며 이미 지나간 턴도 캐시에서 합쳐 사용한다.
+        captureVirtualConversationSnapshot();
+        virtualConversationCache.order.forEach(id => {
+          const turn = virtualConversationCache.turns.get(id);
+          if (turn) turns.push(turn);
+        });
+      } else {
+        const historyMessages = legacyHistoryMessages
           .map((message, domIndex) => ({
             message,
             domIndex,
@@ -2115,11 +2162,8 @@
             items
           });
         });
-      }
 
-      // 기존 Android/기존 ZETA에서는 LastChatMessage > active Candidate를 별도로 최신 1턴으로 붙인다.
-      // 신형 iOS에서는 active BodyView가 위 historyMessages fallback에 이미 포함되므로 중복 추가하지 않는다.
-      if (legacyHistoryMessages.length) {
+        // 기존 Android/기존 ZETA에서는 LastChatMessage > active Candidate를 별도로 최신 1턴으로 붙인다.
         const lastMessage = document.querySelector('[data-sentry-component="LastChatMessage"]');
         if (lastMessage) {
           const activeSlide = lastMessage.querySelector('.swiper-slide-active');
@@ -2759,7 +2803,7 @@
       await bodyReady();
       guardAgainstLegacyPanels();
       if (/zeta-ai\.io$/i.test(location.hostname)) {
-        startVirtualConversationCapture();
+        installVirtualConversationCapture();
         const { say, showSummaryResult } = panel('zeta');
         // OneClick 결과는 sharedStorage(localStorage) pending 경로 하나로만 적용한다.
         // 이벤트와 폴링의 동시 applyToZeta() 진입을 막아 중복 적용 경쟁 상태를 제거한다.
