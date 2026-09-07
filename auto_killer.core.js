@@ -1,14 +1,14 @@
 /* AUTO_KILLER remote core
- * Unified remote core: 2.25.4.2
+ * Unified remote core: 2.25.4.3
  * Temporary Chat: every job starts a fresh temporary chat.
  */
 (function () {
   'use strict';
   window.__AUTO_KILLER_REMOTE_CORE_LOADED__ = true;
-  window.__AUTO_KILLER_REMOTE_CORE_VERSION__ = '2.25.4.2';
+  window.__AUTO_KILLER_REMOTE_CORE_VERSION__ = '2.25.4.3';
 
     'use strict';
-    const SCRIPT_VERSION = '2.25.4.2';
+    const SCRIPT_VERSION = '2.25.4.3';
     const GPT_URL = 'https://chatgpt.com/g/g-6a1099bd986881918e0c582d35aafb1d-yeogbyeongkilreo';
     const PANEL_ID = 'zk-tm-unified-panel-v4';
     const JOB_KEY = 'zk_current_job_v2';
@@ -628,7 +628,7 @@
       const close = makeButton('×', '#f3f4f6', '#4b5563'); close.style.cssText += 'padding:1px 5px;border-radius:6px;font-size:11px'; close.onclick = () => host.remove();
       header.append(dots, title, minimize, compactToggle, close);
 
-      // 2.25 구형 로더 → 2.25.4.2 통합 로더 1회 재설치 안내.
+      // 2.25 구형 로더 → 2.25.4.3 통합 로더 1회 재설치 안내.
       // 새 로더는 core 실행 전에 __AUTO_KILLER_STORAGE_BRIDGE__를 true로 세팅하므로 안내가 자동으로 사라진다.
       const needsLoaderMigration = mode === 'zeta'
         && ONECLICK_BRIDGE
@@ -636,10 +636,10 @@
       const loaderMigrationNotice = document.createElement('div');
       loaderMigrationNotice.style.cssText = `display:${needsLoaderMigration ? 'flex' : 'none'};flex-direction:column;gap:6px;padding:8px 9px;border:1px solid #e6c96f;border-radius:9px;background:#fff8dc;color:#4d3f18;font:650 11px/1.4 system-ui,sans-serif`;
       const loaderMigrationText = document.createElement('div');
-      loaderMigrationText.innerHTML = '<b>⚠ AUTO_KILLER 중요 업데이트</b><br>새 자동 업데이트 방식 적용을 위해 <b>2.25.4.2을 한 번 다시 설치</b>해주세요.';
+      loaderMigrationText.innerHTML = '<b>⚠ AUTO_KILLER 중요 업데이트</b><br>새 자동 업데이트 방식 적용을 위해 <b>2.25.4.3을 한 번 다시 설치</b>해주세요.';
       const loaderMigrationButton = document.createElement('button');
       loaderMigrationButton.type = 'button';
-      loaderMigrationButton.textContent = '2.25.4.2 업데이트 설치';
+      loaderMigrationButton.textContent = '2.25.4.3 업데이트 설치';
       loaderMigrationButton.style.cssText = 'color-scheme:light;appearance:none;align-self:flex-start;border:1px solid #d5b952;border-radius:7px;padding:6px 9px;background:#fff;color:#4d3f18;font:800 11px/1.15 system-ui,sans-serif;cursor:pointer';
       loaderMigrationButton.onclick = () => {
         try {
@@ -1829,6 +1829,236 @@
       });
     }
 
+    // ZETA 신형 가상 스크롤에서는 화면을 지나간 BodyView가 DOM에서 제거된다.
+    // 스크롤 중 보였던 턴을 message id 기준으로 가볍게 누적해 두고 생성/요약 시 재사용한다.
+    const VIRTUAL_BODY_SELECTOR = '[data-sentry-component="BodyView"][id^="message-MESSAGE-"]';
+    const VIRTUAL_USER_SELECTOR = '[data-sentry-component="RightTextContent"]';
+    const VIRTUAL_TURN_CACHE_MAX = 1000;
+    let virtualTurnCacheRoom = '';
+    let virtualTurnCache = new Map();
+    let virtualTurnOrder = [];
+    let virtualTurnIdDirection = 0;
+    let virtualTurnLastScrollTop = null;
+    let virtualTurnCaptureTimer = 0;
+    let virtualTurnDelayedTimers = [];
+
+    function currentZetaRoomKey() {
+      return `${location.origin}${location.pathname}`;
+    }
+
+    function virtualMessageOrdinal(id) {
+      const match = String(id || '').match(/^message-MESSAGE-(\d+)/);
+      if (!match) return null;
+      const value = Number(match[1]);
+      return Number.isSafeInteger(value) ? value : null;
+    }
+
+    function virtualTextFingerprint(text) {
+      let hash = 2166136261;
+      const value = String(text || '').replace(/\s+/g, ' ').trim();
+      for (let index = 0; index < value.length; index += 1) {
+        hash ^= value.charCodeAt(index);
+        hash = Math.imul(hash, 16777619);
+      }
+      return (hash >>> 0).toString(36);
+    }
+
+    function virtualStandaloneUserId(view, orderedEntries, entryIndex) {
+      const ownMessageId = view.closest?.('[id^="message-MESSAGE-"]')?.id || '';
+      if (ownMessageId) return `${ownMessageId}:standalone-user`;
+
+      let previousBodyId = '';
+      let nextBodyId = '';
+      for (let index = entryIndex - 1; index >= 0; index -= 1) {
+        if (orderedEntries[index]?.message?.matches?.(VIRTUAL_BODY_SELECTOR)) {
+          previousBodyId = orderedEntries[index].message.id || '';
+          break;
+        }
+      }
+      for (let index = entryIndex + 1; index < orderedEntries.length; index += 1) {
+        if (orderedEntries[index]?.message?.matches?.(VIRTUAL_BODY_SELECTOR)) {
+          nextBodyId = orderedEntries[index].message.id || '';
+          break;
+        }
+      }
+
+      const text = cleanConversationText(view.querySelector?.('.chat') || view);
+      return `standalone-user:${previousBodyId || 'start'}:${nextBodyId || 'end'}:${virtualTextFingerprint(text)}`;
+    }
+
+    function activeVirtualBodyViews() {
+      return [...document.querySelectorAll(VIRTUAL_BODY_SELECTOR)].filter(body => {
+        const slide = body.closest('.swiper-slide');
+        return !slide || slide.classList.contains('swiper-slide-active');
+      });
+    }
+
+    function findVirtualScrollContainer() {
+      const seed = document.querySelector(VIRTUAL_BODY_SELECTOR) || document.querySelector(VIRTUAL_USER_SELECTOR);
+      let node = seed?.parentElement || null;
+      while (node && node !== document.documentElement) {
+        let style = null;
+        try { style = getComputedStyle(node); } catch (error) {}
+        if (style && node.scrollHeight > node.clientHeight + 20 && /auto|scroll|overlay/i.test(style.overflowY || '')) return node;
+        node = node.parentElement;
+      }
+      return null;
+    }
+
+    function normalizeVirtualTurn(message, source = 'history', forcedId = '') {
+      if (!message) return null;
+      const items = conversationItemsFrom(message, source).map(item => ({
+        ...item,
+        messageId: forcedId || message.id || ''
+      }));
+      if (!items.length) return null;
+      const hasCharacter = items.some(item => item.role === 'character');
+      const hasUser = items.some(item => item.role === 'user');
+      return {
+        id: forcedId || message.id || '',
+        kind: hasCharacter ? 'character' : (hasUser ? 'user' : 'context'),
+        items
+      };
+    }
+
+    function inferVirtualIdDirection(orderedBodies) {
+      if (virtualTurnIdDirection || orderedBodies.length < 2) return;
+      for (let index = 1; index < orderedBodies.length; index += 1) {
+        const previous = virtualMessageOrdinal(orderedBodies[index - 1].id);
+        const current = virtualMessageOrdinal(orderedBodies[index].id);
+        if (previous === null || current === null || previous === current) continue;
+        // 화면 위→아래 순서를 그대로 과거→최신 순서로 사용한다.
+        virtualTurnIdDirection = previous < current ? 1 : -1;
+        return;
+      }
+    }
+
+    function mergeVirtualTurnOrder(incomingIds, scrollTop = null) {
+      const incoming = [...new Set(incomingIds.filter(Boolean))];
+      if (!incoming.length) return;
+      if (!virtualTurnOrder.length) {
+        virtualTurnOrder = incoming;
+        return;
+      }
+
+      const existingSet = new Set(virtualTurnOrder);
+      const firstCommonIncomingIndex = incoming.findIndex(id => existingSet.has(id));
+      if (firstCommonIncomingIndex >= 0) {
+        const anchorId = incoming[firstCommonIncomingIndex];
+        const anchorIndex = virtualTurnOrder.indexOf(anchorId);
+        const prefix = incoming.slice(0, firstCommonIncomingIndex).filter(id => !existingSet.has(id));
+        if (prefix.length) virtualTurnOrder.splice(anchorIndex, 0, ...prefix);
+
+        let cursor = virtualTurnOrder.indexOf(anchorId) + 1;
+        for (const id of incoming.slice(firstCommonIncomingIndex + 1)) {
+          const existingIndex = virtualTurnOrder.indexOf(id);
+          if (existingIndex >= 0) {
+            cursor = existingIndex + 1;
+            continue;
+          }
+          virtualTurnOrder.splice(cursor, 0, id);
+          cursor += 1;
+        }
+        return;
+      }
+
+      // 드물게 lazy-load 경계에서 겹치는 턴이 하나도 없는 경우.
+      // message id의 화면상 증가/감소 방향을 이미 알면 그 순서로 넣고,
+      // 아니면 flex-col-reverse 스크롤 방향을 이용해 앞/뒤를 결정한다.
+      if (virtualTurnIdDirection && [...virtualTurnOrder, ...incoming].every(id => virtualMessageOrdinal(id) !== null)) {
+        const compare = (left, right) => {
+          const a = virtualMessageOrdinal(left);
+          const b = virtualMessageOrdinal(right);
+          return virtualTurnIdDirection > 0 ? a - b : b - a;
+        };
+        virtualTurnOrder = [...new Set([...virtualTurnOrder, ...incoming])].sort(compare);
+        return;
+      }
+
+      if (Number.isFinite(scrollTop) && Number.isFinite(virtualTurnLastScrollTop) && scrollTop < virtualTurnLastScrollTop) {
+        virtualTurnOrder = [...incoming, ...virtualTurnOrder];
+      } else {
+        virtualTurnOrder.push(...incoming);
+      }
+    }
+
+    function trimVirtualTurnCache() {
+      if (virtualTurnOrder.length <= VIRTUAL_TURN_CACHE_MAX) return;
+      const removeCount = virtualTurnOrder.length - VIRTUAL_TURN_CACHE_MAX;
+      const removed = virtualTurnOrder.splice(0, removeCount);
+      removed.forEach(id => virtualTurnCache.delete(id));
+    }
+
+    function captureVirtualConversationTurns() {
+      if (!/zeta-ai\.io$/i.test(location.hostname)) return;
+      const roomKey = currentZetaRoomKey();
+      if (virtualTurnCacheRoom !== roomKey) {
+        virtualTurnCacheRoom = roomKey;
+        virtualTurnCache = new Map();
+        virtualTurnOrder = [];
+        virtualTurnIdDirection = 0;
+        virtualTurnLastScrollTop = null;
+      }
+
+      // 구형 ChatMessage 구조에서는 기존 수집기를 그대로 사용한다.
+      if (document.querySelector('[data-sentry-component="ChatMessage"]')) return;
+
+      const bodies = activeVirtualBodyViews();
+      const standaloneUsers = [...document.querySelectorAll(VIRTUAL_USER_SELECTOR)]
+        .filter(view => !view.closest(VIRTUAL_BODY_SELECTOR));
+      const entries = [...bodies, ...standaloneUsers]
+        .map((message, domIndex) => ({ message, domIndex, top: message.getBoundingClientRect().top }))
+        .sort((a, b) => a.top !== b.top ? a.top - b.top : a.domIndex - b.domIndex);
+      if (!entries.length) return;
+
+      inferVirtualIdDirection(entries.map(entry => entry.message).filter(message => message.matches?.(VIRTUAL_BODY_SELECTOR)));
+      const scrollContainer = findVirtualScrollContainer();
+      const scrollTop = scrollContainer ? scrollContainer.scrollTop : null;
+      const incomingIds = [];
+
+      entries.forEach((entry, entryIndex) => {
+        const message = entry.message;
+        const forcedId = message.matches?.(VIRTUAL_BODY_SELECTOR)
+          ? (message.id || '')
+          : virtualStandaloneUserId(message, entries, entryIndex);
+        const turn = normalizeVirtualTurn(message, 'history', forcedId);
+        if (!turn?.id) return;
+        virtualTurnCache.set(turn.id, turn);
+        incomingIds.push(turn.id);
+      });
+
+      mergeVirtualTurnOrder(incomingIds, scrollTop);
+      trimVirtualTurnCache();
+      if (Number.isFinite(scrollTop)) virtualTurnLastScrollTop = scrollTop;
+    }
+
+    function scheduleVirtualConversationCapture() {
+      if (virtualTurnCaptureTimer) return;
+      virtualTurnCaptureTimer = window.setTimeout(() => {
+        virtualTurnCaptureTimer = 0;
+        captureVirtualConversationTurns();
+      }, 90);
+
+      virtualTurnDelayedTimers.forEach(timer => clearTimeout(timer));
+      virtualTurnDelayedTimers = [180, 520].map(delay => window.setTimeout(captureVirtualConversationTurns, delay));
+    }
+
+    function startVirtualConversationCapture() {
+      if (window.__AUTO_KILLER_VIRTUAL_TURN_CAPTURE_STARTED__ === true) return;
+      window.__AUTO_KILLER_VIRTUAL_TURN_CAPTURE_STARTED__ = true;
+      document.addEventListener('scroll', scheduleVirtualConversationCapture, true);
+      [0, 250, 800, 1600].forEach(delay => window.setTimeout(captureVirtualConversationTurns, delay));
+    }
+
+    function cachedVirtualTurns() {
+      captureVirtualConversationTurns();
+      const ordered = virtualTurnOrder
+        .map(id => virtualTurnCache.get(id))
+        .filter(Boolean);
+      if (ordered.length) return ordered;
+      return [];
+    }
+
     function collectConversation(characterLimit = GENERATION_DEFAULT_CHARACTER_COUNT) {
       const turns = [];
 
@@ -1843,49 +2073,49 @@
       // 사용자 발화는 RightTextContent로 렌더링되는 것을 확인했다.
       // 기존 ChatMessage가 하나라도 있으면 이 fallback은 사용하지 않아 Android/기존 구조를 보존한다.
       if (!historyMessages.length) {
-        const iosBodyTurns = [...document.querySelectorAll(
-          '[data-sentry-component="BodyView"][id^="message-MESSAGE-"]'
-        )].filter(body => {
-          const slide = body.closest('.swiper-slide');
-          // 후보 캐러셀의 비활성 슬라이드는 같은 응답의 중복 후보이므로 제외한다.
-          return !slide || slide.classList.contains('swiper-slide-active');
-        });
-
-        const iosStandaloneUserTurns = [...document.querySelectorAll(
-          '[data-sentry-component="RightTextContent"]'
-        )].filter(view => !view.closest('[data-sentry-component="BodyView"][id^="message-MESSAGE-"]'));
-
-        historyMessages = [...iosBodyTurns, ...iosStandaloneUserTurns];
+        const cachedTurns = cachedVirtualTurns();
+        if (cachedTurns.length) {
+          // 신형 ZETA는 스크롤한 과거 턴을 DOM에서 제거하므로 현재 DOM만 읽으면 10여 턴에서 잘릴 수 있다.
+          // 스크롤 중 누적한 BodyView 턴을 그대로 사용한다.
+          turns.push(...cachedTurns);
+        } else {
+          const iosBodyTurns = activeVirtualBodyViews();
+          const iosStandaloneUserTurns = [...document.querySelectorAll(VIRTUAL_USER_SELECTOR)]
+            .filter(view => !view.closest(VIRTUAL_BODY_SELECTOR));
+          historyMessages = [...iosBodyTurns, ...iosStandaloneUserTurns];
+        }
       }
 
-      historyMessages = historyMessages
-        .map((message, domIndex) => ({
-          message,
-          domIndex,
-          top: message.getBoundingClientRect().top
-        }))
-        .sort((a, b) => {
-          if (a.top !== b.top) return a.top - b.top;
-          return a.domIndex - b.domIndex;
-        })
-        .map(entry => entry.message);
+      if (!turns.length) {
+        historyMessages = historyMessages
+          .map((message, domIndex) => ({
+            message,
+            domIndex,
+            top: message.getBoundingClientRect().top
+          }))
+          .sort((a, b) => {
+            if (a.top !== b.top) return a.top - b.top;
+            return a.domIndex - b.domIndex;
+          })
+          .map(entry => entry.message);
 
-      historyMessages.forEach(message => {
-        const items = conversationItemsFrom(message).map(item => ({
-          ...item,
-          messageId: message.id || ''
-        }));
-        if (!items.length) return;
+        historyMessages.forEach(message => {
+          const items = conversationItemsFrom(message).map(item => ({
+            ...item,
+            messageId: message.id || ''
+          }));
+          if (!items.length) return;
 
-        const hasCharacter = items.some(item => item.role === 'character');
-        const hasUser = items.some(item => item.role === 'user');
+          const hasCharacter = items.some(item => item.role === 'character');
+          const hasUser = items.some(item => item.role === 'user');
 
-        turns.push({
-          id: message.id || `history-${turns.length}`,
-          kind: hasCharacter ? 'character' : (hasUser ? 'user' : 'context'),
-          items
+          turns.push({
+            id: message.id || `history-${turns.length}`,
+            kind: hasCharacter ? 'character' : (hasUser ? 'user' : 'context'),
+            items
+          });
         });
-      });
+      }
 
       // 기존 Android/기존 ZETA에서는 LastChatMessage > active Candidate를 별도로 최신 1턴으로 붙인다.
       // 신형 iOS에서는 active BodyView가 위 historyMessages fallback에 이미 포함되므로 중복 추가하지 않는다.
@@ -2529,6 +2759,7 @@
       await bodyReady();
       guardAgainstLegacyPanels();
       if (/zeta-ai\.io$/i.test(location.hostname)) {
+        startVirtualConversationCapture();
         const { say, showSummaryResult } = panel('zeta');
         // OneClick 결과는 sharedStorage(localStorage) pending 경로 하나로만 적용한다.
         // 이벤트와 폴링의 동시 applyToZeta() 진입을 막아 중복 적용 경쟁 상태를 제거한다.
