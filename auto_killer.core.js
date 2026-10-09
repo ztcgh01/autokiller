@@ -1,14 +1,14 @@
 /* AUTO_KILLER remote core
- * Unified remote core: 2.25.5.5
+ * Unified remote core: 2.25.5.6
  * Temporary Chat: every job starts a fresh temporary chat.
  */
 (function () {
   'use strict';
   window.__AUTO_KILLER_REMOTE_CORE_LOADED__ = true;
-  window.__AUTO_KILLER_REMOTE_CORE_VERSION__ = '2.25.5.5';
+  window.__AUTO_KILLER_REMOTE_CORE_VERSION__ = '2.25.5.6';
 
     'use strict';
-    const SCRIPT_VERSION = '2.25.5.5';
+    const SCRIPT_VERSION = '2.25.5.6';
     const GPT_URL = 'https://chatgpt.com/g/g-6a1099bd986881918e0c582d35aafb1d-yeogbyeongkilreo';
     const PANEL_ID = 'zk-tm-unified-panel-v4';
     const JOB_KEY = 'zk_current_job_v2';
@@ -1636,7 +1636,7 @@
       header.append(dots, title, minimize, compactToggle, close);
       attachDiagnosticUi(shadow, root, mode, makeButton, say, diagnosticButton);
 
-      // 2.25 구형 로더 → 2.25.5.5 통합 로더 1회 재설치 안내.
+      // 2.25 구형 로더 → 2.25.5.6 통합 로더 1회 재설치 안내.
       // 새 로더는 core 실행 전에 __AUTO_KILLER_STORAGE_BRIDGE__를 true로 세팅하므로 안내가 자동으로 사라진다.
       const needsLoaderMigration = mode === 'zeta'
         && ONECLICK_BRIDGE
@@ -1644,10 +1644,10 @@
       const loaderMigrationNotice = document.createElement('div');
       loaderMigrationNotice.style.cssText = `display:${needsLoaderMigration ? 'flex' : 'none'};flex-direction:column;gap:6px;padding:8px 9px;border:1px solid #e6c96f;border-radius:9px;background:#fff8dc;color:#4d3f18;font:650 11px/1.4 system-ui,sans-serif`;
       const loaderMigrationText = document.createElement('div');
-      loaderMigrationText.innerHTML = '<b>⚠ AUTO_KILLER 중요 업데이트</b><br>새 자동 업데이트 방식 적용을 위해 <b>2.25.5.5을 한 번 다시 설치</b>해주세요.';
+      loaderMigrationText.innerHTML = '<b>⚠ AUTO_KILLER 중요 업데이트</b><br>새 자동 업데이트 방식 적용을 위해 <b>2.25.5.6을 한 번 다시 설치</b>해주세요.';
       const loaderMigrationButton = document.createElement('button');
       loaderMigrationButton.type = 'button';
-      loaderMigrationButton.textContent = '2.25.5.5 업데이트 설치';
+      loaderMigrationButton.textContent = '2.25.5.6 업데이트 설치';
       loaderMigrationButton.style.cssText = 'color-scheme:light;appearance:none;align-self:flex-start;border:1px solid #d5b952;border-radius:7px;padding:6px 9px;background:#fff;color:#4d3f18;font:800 11px/1.15 system-ui,sans-serif;cursor:pointer';
       loaderMigrationButton.onclick = () => {
         try {
@@ -3834,6 +3834,13 @@
     }
 
     function watchForGptResponse(job, say, state) {
+      const RESPONSE_STABLE_MS = 700;
+      const RESPONSE_ACTION_STABLE_MS = 500;
+      const RESPONSE_CONFIRM_MS = 160;
+      const RESPONSE_POLL_MS = 400;
+      const RETURN_DELAY_MS = 300;
+      const IOS_RETURN_DELAY_MS = 180;
+
       say('GPT 답변을 기다리는 중…');
       diagnosticCheckpoint('GPT_RESPONSE_WATCH_START', {
         baselineAssistantCount: Number(job?.baselineAssistantCount || 0),
@@ -3903,10 +3910,10 @@
             say('제타로 전달 완료 · 제타로 돌아가는 중');
             state.textContent = '완료';
             gptBusy = false;
-            await diagnosticCritical('RETURN_REQUESTED', { method: 'ios-oneclick-location-replace', delayMs: 250 });
+            await diagnosticCritical('RETURN_REQUESTED', { method: 'ios-oneclick-location-replace', delayMs: IOS_RETURN_DELAY_MS });
             setTimeout(() => {
               location.replace(`${response.room.split('#')[0]}#${BOOKMARKLET_RESULT_HASH}=${encodeTransfer(response)}`);
-            }, 250);
+            }, IOS_RETURN_DELAY_MS);
             return;
           }
 
@@ -3918,7 +3925,7 @@
           state.textContent = '완료';
           gptBusy = false;
 
-          await diagnosticCritical('RETURN_REQUESTED', { method: job.newTab ? 'close-new-tab-or-fallback' : 'location-replace', delayMs: 650, openerPresent: !!window.opener });
+          await diagnosticCritical('RETURN_REQUESTED', { method: job.newTab ? 'close-new-tab-or-fallback' : 'location-replace', delayMs: RETURN_DELAY_MS, openerPresent: !!window.opener });
           setTimeout(async () => {
             const fallbackUrl = job.oneclick
               ? `${response.room.split('#')[0]}#${BOOKMARKLET_RESULT_HASH}=${encodeTransfer(response)}`
@@ -3948,7 +3955,7 @@
               await diagnosticCritical('RETURN_LOCATION_REPLACE', { method: 'same-tab' });
               location.replace(fallbackUrl);
             }
-          }, 650);
+          }, RETURN_DELAY_MS);
         } catch (error) {
           diagnosticFail('RESPONSE_STORAGE_FAILED', { errorName: error?.name || 'Error', errorMessage: diagnosticSanitizeString(error?.message || String(error), 200) });
           console.error('[AUTO_KILLER Core] 응답 저장 실패', error);
@@ -3997,12 +4004,23 @@
           return;
         }
 
-        // 모바일 Safari/Firefox에서는 copy 버튼 DOM이 없거나 늦게 생길 수 있으므로
-        // 답변 텍스트가 생성 종료 후 일정 시간 변하지 않으면 완료로 판정한다.
-        if (Date.now() - stableSince < 1400) { diagnosticCheckpoint('GPT_WAIT_STABILITY', { stableForMs: Date.now() - stableSince, latestLength: text.length }); return; }
+        // 생성 중지 신호가 사라진 뒤 텍스트가 짧게 안정되면 완료로 판정한다.
+        // assistant 전용 액션이 이미 보이면 ChatGPT 후처리 UI까지 끝난 상태로 보고 더 빠르게 진행한다.
+        let responseActionReady = false;
+        try {
+          responseActionReady = [...document.querySelectorAll('button[aria-label],button[title]')]
+            .some(button => isAssistantResponseActionButton(button) && answer.contains?.(button));
+        } catch (error) {}
+
+        const stableThreshold = responseActionReady ? RESPONSE_ACTION_STABLE_MS : RESPONSE_STABLE_MS;
+        const stableForMs = Date.now() - stableSince;
+        if (stableForMs < stableThreshold) {
+          diagnosticCheckpoint('GPT_WAIT_STABILITY', { stableForMs, stableThreshold, responseActionReady, latestLength: text.length });
+          return;
+        }
         if (confirmTimer) return;
 
-        diagnosticCheckpoint('GPT_RESPONSE_STABLE', { stableForMs: Date.now() - stableSince, latestLength: text.length });
+        diagnosticCheckpoint('GPT_RESPONSE_STABLE', { stableForMs, stableThreshold, responseActionReady, latestLength: text.length });
         confirmTimer = setTimeout(async () => {
           confirmTimer = null;
           if (finished || isGptGenerating()) return;
@@ -4022,7 +4040,7 @@
           finished = true;
           cleanup();
           await finish(latestText);
-        }, 350);
+        }, RESPONSE_CONFIRM_MS);
       };
 
       observer = new MutationObserver(() => {
@@ -4037,7 +4055,7 @@
 
       fallbackTimer = setInterval(() => {
         checkCompletion().catch(error => console.error('[AUTO_KILLER Core] 완료 백업 감지 오류', error));
-      }, 700);
+      }, RESPONSE_POLL_MS);
 
       timeoutTimer = setTimeout(() => {
         if (finished) return;
