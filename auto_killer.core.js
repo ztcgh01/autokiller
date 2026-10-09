@@ -1,14 +1,14 @@
 /* AUTO_KILLER remote core
- * Unified remote core: 2.25.4.8
+ * Unified remote core: 2.25.5.0
  * Temporary Chat: every job starts a fresh temporary chat.
  */
 (function () {
   'use strict';
   window.__AUTO_KILLER_REMOTE_CORE_LOADED__ = true;
-  window.__AUTO_KILLER_REMOTE_CORE_VERSION__ = '2.25.4.8';
+  window.__AUTO_KILLER_REMOTE_CORE_VERSION__ = '2.25.5.0';
 
     'use strict';
-    const SCRIPT_VERSION = '2.25.4.8';
+    const SCRIPT_VERSION = '2.25.5.0';
     const GPT_URL = 'https://chatgpt.com/g/g-6a1099bd986881918e0c582d35aafb1d-yeogbyeongkilreo';
     const PANEL_ID = 'zk-tm-unified-panel-v4';
     const JOB_KEY = 'zk_current_job_v2';
@@ -28,6 +28,10 @@
     const BOOKMARKLET_RESULT_HASH = 'akresult';
     const STORAGE_REQUEST_EVENT = '__AUTO_KILLER_GM_REQUEST_V1__';
     const STORAGE_RESPONSE_EVENT = '__AUTO_KILLER_GM_RESPONSE_V1__';
+    const DIAGNOSTIC_KEY = 'zk_diagnostic_state_v1';
+    const DIAGNOSTIC_MAX_EVENTS = 220;
+    const DIAGNOSTIC_ACTIVE_TTL_MS = 30 * 60 * 1000;
+    const DIAGNOSTIC_RETENTION_MS = 24 * 60 * 60 * 1000;
     const GENERATION_DEFAULT_CHARACTER_COUNT = 20;
     const GENERATION_CHARACTER_COUNT_KEY = 'zk_generation_character_count_v1';
     const GENERATION_PROMPTS_KEY = 'zk_generation_prompts_v1';
@@ -122,6 +126,612 @@
             delete: key => directGm.deleteValue(key)
           }
         : localStorageBridge;
+
+    let diagnosticState = null;
+    let diagnosticWriteQueue = Promise.resolve();
+    let diagnosticErrorHooksInstalled = false;
+    let diagnosticLastCheckpoint = '';
+
+    function diagnosticPageKind() {
+      const host = String(location.hostname || '').toLowerCase();
+      const path = String(location.pathname || '');
+      if (host === 'zeta-ai.io' || host.endsWith('.zeta-ai.io')) return 'zeta';
+      if (host === 'chatgpt.com' || host.endsWith('.chatgpt.com')) {
+        if (path.includes('/g/')) return 'chatgpt-custom-gpt';
+        if (path.includes('/c/')) return 'chatgpt-conversation';
+        return 'chatgpt';
+      }
+      return 'other';
+    }
+
+    function diagnosticStorageKind() {
+      if (ONECLICK_BRIDGE && window.__AUTO_KILLER_STORAGE_BRIDGE__ === true) return 'userscript-event-bridge';
+      if (directGm) return 'direct-gm';
+      return 'local-storage-fallback';
+    }
+
+    function diagnosticSanitizeString(value, maxLength = 240) {
+      let text = String(value == null ? '' : value);
+      text = text.replace(/[A-Za-z0-9_-]{48,}/g, '[long-id]');
+      return text.length > maxLength ? text.slice(0, maxLength) + '…' : text;
+    }
+
+    function diagnosticSafeUrl(value, keepPath = false) {
+      try {
+        const url = new URL(String(value || ''));
+        return keepPath ? url.origin + url.pathname : url.origin + '/…';
+      } catch (error) {
+        return 'unknown';
+      }
+    }
+
+    function diagnosticSafeObject(value, depth = 0) {
+      if (depth > 4) return '[depth-limit]';
+      if (value == null || typeof value === 'boolean' || typeof value === 'number') return value;
+      if (typeof value === 'string') return diagnosticSanitizeString(value);
+      if (Array.isArray(value)) return value.slice(0, 40).map(item => diagnosticSafeObject(item, depth + 1));
+      if (typeof value === 'object') {
+        const result = {};
+        Object.entries(value).slice(0, 60).forEach(([key, item]) => {
+          if (/text|content|prompt|response|conversation|message|source/i.test(key) &&
+              !/(length|count|present|found|status|type|mode|error|stage|coreSource)/i.test(key)) {
+            result[key] = '[not-collected]';
+          } else {
+            result[key] = diagnosticSafeObject(item, depth + 1);
+          }
+        });
+        return result;
+      }
+      return diagnosticSanitizeString(String(value));
+    }
+
+    function diagnosticEnvironmentSnapshot() {
+      const gmInfo = typeof GM_info === 'object' && GM_info ? GM_info : null;
+      const modernInfo = typeof GM === 'object' && GM && typeof GM.info === 'object' ? GM.info : null;
+      const loaderVersion = window.__AUTO_KILLER_LOADER_VERSION__ || gmInfo?.script?.version || modernInfo?.script?.version || 'unknown';
+      const handler = gmInfo?.scriptHandler || modernInfo?.scriptHandler || '';
+      return {
+        coreVersion: SCRIPT_VERSION,
+        loaderVersion: diagnosticSanitizeString(loaderVersion, 40),
+        coreSource: diagnosticSafeUrl(window.__AUTO_KILLER_CORE_URL__ || '', true),
+        pageKind: diagnosticPageKind(),
+        storage: diagnosticStorageKind(),
+        bookmarkletMode: BOOKMARKLET_MODE,
+        oneClickBridge: ONECLICK_BRIDGE,
+        oneClickIOS: ONECLICK_IOS,
+        scriptHandler: diagnosticSanitizeString(handler, 80) || 'unknown',
+        userAgent: diagnosticSanitizeString(navigator.userAgent, 260),
+        platform: diagnosticSanitizeString(navigator.platform || '', 80),
+        maxTouchPoints: Number(navigator.maxTouchPoints || 0),
+        language: diagnosticSanitizeString(navigator.language || '', 40),
+        viewport: { width: innerWidth, height: innerHeight, dpr: Number(window.devicePixelRatio || 1) },
+        screen: { width: Number(window.screen?.width || 0), height: Number(window.screen?.height || 0) },
+        visibility: document.visibilityState,
+        standalone: !!(navigator.standalone || window.matchMedia?.('(display-mode: standalone)')?.matches),
+        capabilities: {
+          clipboard: !!navigator.clipboard,
+          inputEvent: typeof InputEvent === 'function',
+          mutationObserver: typeof MutationObserver === 'function',
+          execCommand: typeof document.execCommand === 'function',
+          openerPresent: !!window.opener,
+          windowClose: typeof window.close === 'function',
+          sessionStorage: (() => { try { return !!sessionStorage; } catch (error) { return false; } })()
+        }
+      };
+    }
+
+    function diagnosticSelectorCount(selector) {
+      try { return document.querySelectorAll(selector).length; } catch (error) { return -1; }
+    }
+
+    function diagnosticVisibleCount(selector) {
+      try {
+        return [...document.querySelectorAll(selector)].filter(element => {
+          try {
+            const style = getComputedStyle(element);
+            const rect = element.getBoundingClientRect();
+            return style.display !== 'none' && style.visibility !== 'hidden' && rect.width > 1 && rect.height > 1;
+          } catch (error) { return false; }
+        }).length;
+      } catch (error) { return -1; }
+    }
+
+    function diagnosticDomSnapshot() {
+      const pageKind = diagnosticPageKind();
+      if (pageKind.startsWith('chatgpt')) {
+        let latestLength = 0;
+        let latestTurnIdPresent = false;
+        let assistantCount = 0;
+        try {
+          const turns = typeof assistantTurns === 'function' ? assistantTurns() : [];
+          assistantCount = turns.length;
+          const latest = turns[turns.length - 1] || null;
+          if (latest && typeof assistantText === 'function') {
+            latestLength = assistantText(latest, true).length;
+            latestTurnIdPresent = !!(typeof currentTurnId === 'function' && currentTurnId(latest));
+          }
+        } catch (error) {}
+
+        const stopSelectors = [
+          'button[data-testid="stop-button"]',
+          'button[aria-label="Stop generating"]',
+          'button[aria-label="Stop"]',
+          'button[aria-label="생성 중지"]',
+          'button[aria-label="중지"]'
+        ];
+
+        return {
+          pageKind,
+          prompt: {
+            promptId: diagnosticSelectorCount('#prompt-textarea'),
+            testIdPrompt: diagnosticSelectorCount('[data-testid="prompt-textarea"]'),
+            proseMirror: diagnosticSelectorCount('.ProseMirror[contenteditable="true"]'),
+            roleTextbox: diagnosticSelectorCount('[contenteditable="true"][role="textbox"]'),
+            editable: diagnosticSelectorCount('[contenteditable="true"]'),
+            textarea: diagnosticSelectorCount('textarea'),
+            visibleRoleTextbox: diagnosticVisibleCount('[contenteditable="true"][role="textbox"]')
+          },
+          assistant: {
+            roleMessages: diagnosticSelectorCount('[data-message-author-role="assistant"]'),
+            dataTurnAssistant: diagnosticSelectorCount('[data-testid^="conversation-turn-"][data-turn="assistant"]'),
+            detectedTurns: assistantCount,
+            latestLength,
+            latestTurnIdPresent
+          },
+          generation: {
+            stopMatches: stopSelectors.map(selector => ({
+              selector,
+              count: diagnosticSelectorCount(selector),
+              visible: diagnosticVisibleCount(selector)
+            })).filter(item => item.count > 0),
+            isGenerating: typeof isGptGenerating === 'function' ? !!isGptGenerating() : null
+          },
+          submit: {
+            sendButton: diagnosticSelectorCount('button[data-testid="send-button"]'),
+            composerSubmit: diagnosticSelectorCount('#composer-submit-button,button[data-testid="composer-submit-button"]'),
+            submitButtons: diagnosticSelectorCount('button[type="submit"]')
+          },
+          forms: diagnosticSelectorCount('form'),
+          writingBlocks: diagnosticSelectorCount('[data-writing-block="true"]')
+        };
+      }
+
+      if (pageKind === 'zeta') {
+        let cacheOrder = 0;
+        let cacheTurns = 0;
+        try {
+          cacheOrder = virtualConversationCache?.order?.length || 0;
+          cacheTurns = virtualConversationCache?.turns?.size || 0;
+        } catch (error) {}
+        return {
+          pageKind,
+          chatMessage: diagnosticSelectorCount('[data-sentry-component="ChatMessage"]'),
+          bodyView: diagnosticSelectorCount('[data-sentry-component="BodyView"][id^="message-MESSAGE-"]'),
+          rightText: diagnosticSelectorCount('[data-sentry-component="RightTextContent"]'),
+          leftText: diagnosticSelectorCount('[data-sentry-component="LeftTextContent"]'),
+          narrator: diagnosticSelectorCount('[data-sentry-component="NarratorBubble"]'),
+          bubbles: diagnosticSelectorCount('[data-sentry-component="ChatBubbleContainer"]'),
+          candidates: diagnosticSelectorCount('[data-sentry-component="Candidate"]'),
+          lastChatMessage: diagnosticSelectorCount('[data-sentry-component="LastChatMessage"]'),
+          virtualCache: { order: cacheOrder, turns: cacheTurns },
+          visibleEditButtonFound: (() => { try { return !!findVisibleEditButton?.(); } catch (error) { return false; } })(),
+          chatInputFound: (() => { try { return !!findChatInput?.(); } catch (error) { return false; } })()
+        };
+      }
+      return { pageKind };
+    }
+
+    function diagnosticNormalizeState(state) {
+      if (!state || typeof state !== 'object') return null;
+      return {
+        version: 1,
+        enabled: state.enabled === true,
+        sessionId: diagnosticSanitizeString(state.sessionId || '', 80),
+        startedAt: Number(state.startedAt || 0),
+        expiresAt: Number(state.expiresAt || 0),
+        stoppedAt: Number(state.stoppedAt || 0),
+        updatedAt: Number(state.updatedAt || 0),
+        lastStage: diagnosticSanitizeString(state.lastStage || '', 100),
+        lastFailure: diagnosticSanitizeString(state.lastFailure || '', 100),
+        events: Array.isArray(state.events) ? state.events.slice(-DIAGNOSTIC_MAX_EVENTS).map(event => diagnosticSafeObject(event)) : []
+      };
+    }
+
+    function diagnosticEnabled() {
+      return diagnosticState?.enabled === true && (!diagnosticState.expiresAt || Date.now() < diagnosticState.expiresAt);
+    }
+
+    async function diagnosticPersist() {
+      if (!diagnosticState) return;
+      diagnosticState.updatedAt = Date.now();
+      const snapshot = diagnosticNormalizeState(diagnosticState);
+      diagnosticWriteQueue = diagnosticWriteQueue.catch(() => {}).then(() => sharedStorage.set(DIAGNOSTIC_KEY, snapshot))
+        .catch(error => console.warn('[AUTO_KILLER Diagnostic] 저장 실패', error));
+      await diagnosticWriteQueue;
+    }
+
+    function diagnosticLog(stage, detail = {}) {
+      if (!diagnosticEnabled()) return Promise.resolve();
+      const event = {
+        at: Date.now(),
+        page: diagnosticPageKind(),
+        stage: diagnosticSanitizeString(stage, 100),
+        detail: diagnosticSafeObject(detail)
+      };
+      diagnosticState.events.push(event);
+      if (diagnosticState.events.length > DIAGNOSTIC_MAX_EVENTS) {
+        diagnosticState.events.splice(0, diagnosticState.events.length - DIAGNOSTIC_MAX_EVENTS);
+      }
+      diagnosticState.lastStage = event.stage;
+      return diagnosticPersist();
+    }
+
+    function diagnosticCheckpoint(stage, detail = {}) {
+      if (!diagnosticEnabled()) return;
+      const safe = diagnosticSafeObject(detail);
+      let signature = stage;
+      try { signature += '|' + JSON.stringify(safe); } catch (error) {}
+      if (signature === diagnosticLastCheckpoint) return;
+      diagnosticLastCheckpoint = signature;
+      void diagnosticLog(stage, safe);
+    }
+
+    function diagnosticFail(stage, detail = {}) {
+      if (!diagnosticEnabled()) return;
+      diagnosticState.lastFailure = diagnosticSanitizeString(stage, 100);
+      void diagnosticLog(stage, { ...diagnosticSafeObject(detail), failure: true });
+    }
+
+    function installDiagnosticErrorHooks() {
+      if (diagnosticErrorHooksInstalled) return;
+      diagnosticErrorHooksInstalled = true;
+      window.addEventListener('error', event => {
+        if (!diagnosticEnabled()) return;
+        diagnosticFail('JS_ERROR', {
+          errorName: event.error?.name || 'Error',
+          errorMessage: diagnosticSanitizeString(event.message || event.error?.message || '', 240),
+          file: diagnosticSafeUrl(event.filename || '', true),
+          line: Number(event.lineno || 0),
+          column: Number(event.colno || 0)
+        });
+      });
+      window.addEventListener('unhandledrejection', event => {
+        if (!diagnosticEnabled()) return;
+        const reason = event.reason;
+        diagnosticFail('UNHANDLED_REJECTION', {
+          errorName: diagnosticSanitizeString(reason?.name || 'PromiseRejection', 80),
+          errorMessage: diagnosticSanitizeString(reason?.message || String(reason || ''), 240)
+        });
+      });
+    }
+
+    async function diagnosticInit() {
+      let stored = null;
+      try { stored = await sharedStorage.get(DIAGNOSTIC_KEY, null); } catch (error) {}
+      diagnosticState = diagnosticNormalizeState(stored);
+      if (!diagnosticState) return;
+
+      const now = Date.now();
+      if (diagnosticState.enabled && diagnosticState.expiresAt && now >= diagnosticState.expiresAt) {
+        diagnosticState.enabled = false;
+        diagnosticState.stoppedAt = now;
+        diagnosticState.lastStage = 'DIAGNOSTIC_AUTO_STOPPED';
+        diagnosticState.events.push({
+          at: now,
+          page: diagnosticPageKind(),
+          stage: 'DIAGNOSTIC_AUTO_STOPPED',
+          detail: { reason: '30-minute-limit' }
+        });
+        await diagnosticPersist();
+      }
+
+      if (!diagnosticState.enabled && diagnosticState.startedAt && now - diagnosticState.startedAt > DIAGNOSTIC_RETENTION_MS) {
+        diagnosticState = null;
+        try { await sharedStorage.delete(DIAGNOSTIC_KEY); } catch (error) {}
+        return;
+      }
+
+      if (diagnosticEnabled()) {
+        installDiagnosticErrorHooks();
+        await diagnosticLog('PAGE_INIT', { environment: diagnosticEnvironmentSnapshot(), dom: diagnosticDomSnapshot() });
+      }
+    }
+
+    async function diagnosticStart() {
+      const now = Date.now();
+      diagnosticLastCheckpoint = '';
+      diagnosticState = {
+        version: 1,
+        enabled: true,
+        sessionId: now.toString(36) + '-' + Math.random().toString(36).slice(2, 10),
+        startedAt: now,
+        expiresAt: now + DIAGNOSTIC_ACTIVE_TTL_MS,
+        stoppedAt: 0,
+        updatedAt: now,
+        lastStage: 'DIAGNOSTIC_STARTED',
+        lastFailure: '',
+        events: []
+      };
+      installDiagnosticErrorHooks();
+      await diagnosticLog('DIAGNOSTIC_STARTED', {
+        environment: diagnosticEnvironmentSnapshot(),
+        dom: diagnosticDomSnapshot(),
+        privacyMode: 'no-chat-text-no-prompt-text-no-gpt-response-text'
+      });
+    }
+
+    async function diagnosticStop() {
+      if (!diagnosticState) return;
+      if (diagnosticEnabled()) await diagnosticLog('DIAGNOSTIC_STOPPED', { dom: diagnosticDomSnapshot() });
+      diagnosticState.enabled = false;
+      diagnosticState.stoppedAt = Date.now();
+      diagnosticState.lastStage = 'DIAGNOSTIC_STOPPED';
+      await diagnosticPersist();
+    }
+
+    async function diagnosticClear() {
+      diagnosticState = null;
+      diagnosticLastCheckpoint = '';
+      try { await sharedStorage.delete(DIAGNOSTIC_KEY); } catch (error) {}
+    }
+
+    function diagnosticFormatTime(value) {
+      if (!value) return '-';
+      try { return new Date(value).toISOString(); } catch (error) { return String(value); }
+    }
+
+    async function diagnosticBuildReport() {
+      try { await diagnosticWriteQueue; } catch (error) {}
+      let state = diagnosticState;
+      try {
+        const stored = await sharedStorage.get(DIAGNOSTIC_KEY, null);
+        if (stored) state = diagnosticNormalizeState(stored);
+      } catch (error) {}
+      if (!state) return 'AUTO_KILLER DIAGNOSTIC REPORT\nNo diagnostic session is stored.';
+
+      const currentSnapshot = diagnosticSafeObject({
+        environment: diagnosticEnvironmentSnapshot(),
+        dom: diagnosticDomSnapshot()
+      });
+
+      const lines = [
+        'AUTO_KILLER DIAGNOSTIC REPORT',
+        '================================',
+        'Report version: 1',
+        'Core version: ' + SCRIPT_VERSION,
+        'Loader version: ' + diagnosticSanitizeString(window.__AUTO_KILLER_LOADER_VERSION__ || 'unknown', 40),
+        'Status: ' + (state.enabled ? 'RECORDING' : 'STOPPED'),
+        'Session ID: ' + (state.sessionId || '-'),
+        'Started: ' + diagnosticFormatTime(state.startedAt),
+        'Expires: ' + diagnosticFormatTime(state.expiresAt),
+        'Stopped: ' + diagnosticFormatTime(state.stoppedAt),
+        'Last stage: ' + (state.lastStage || '-'),
+        'Last failure: ' + (state.lastFailure || '-'),
+        '',
+        'PRIVACY',
+        '- ZETA chat text: NOT COLLECTED',
+        '- Prompt text: NOT COLLECTED',
+        '- GPT response text: NOT COLLECTED',
+        '- Character/user names: NOT COLLECTED',
+        '- Login/cookie/token data: NOT COLLECTED',
+        '- Report is not automatically transmitted.',
+        '',
+        'CURRENT SNAPSHOT',
+        JSON.stringify(currentSnapshot, null, 2),
+        '',
+        'EVENT LOG'
+      ];
+
+      state.events.forEach((event, index) => {
+        lines.push(
+          '[' + String(index + 1).padStart(3, '0') + '] ' +
+          diagnosticFormatTime(event.at) + ' | ' +
+          (event.page || '-') + ' | ' +
+          (event.stage || '-') + ' | ' +
+          JSON.stringify(event.detail || {})
+        );
+      });
+      return lines.join('\n');
+    }
+
+    async function diagnosticCopyReport() {
+      const report = await diagnosticBuildReport();
+      try {
+        await navigator.clipboard.writeText(report);
+        return true;
+      } catch (error) {
+        try {
+          const textarea = document.createElement('textarea');
+          textarea.value = report;
+          textarea.setAttribute('readonly', '');
+          textarea.style.cssText = 'position:fixed;left:-9999px;top:0';
+          document.body.append(textarea);
+          textarea.select();
+          const ok = document.execCommand('copy');
+          textarea.remove();
+          return !!ok;
+        } catch (fallbackError) { return false; }
+      }
+    }
+
+    async function diagnosticSaveReportTxt() {
+      const report = await diagnosticBuildReport();
+      const stamp = new Date().toISOString().replace(/[:.]/g, '-');
+      const filename = 'AUTO_KILLER_DIAG_' + stamp + '.txt';
+      const blob = new Blob([report], { type: 'text/plain;charset=utf-8' });
+      const url = URL.createObjectURL(blob);
+      try {
+        const anchor = document.createElement('a');
+        anchor.href = url;
+        anchor.download = filename;
+        anchor.rel = 'noopener';
+        document.body.append(anchor);
+        anchor.click();
+        anchor.remove();
+        setTimeout(() => URL.revokeObjectURL(url), 3000);
+        return true;
+      } catch (error) {
+        try { window.open(url, '_blank'); } catch (openError) {}
+        setTimeout(() => URL.revokeObjectURL(url), 10000);
+        return false;
+      }
+    }
+
+    function attachDiagnosticUi(shadow, root, mode, makeButton, say, triggerButton) {
+      const windowBox = document.createElement('div');
+      windowBox.style.cssText = 'display:none;position:fixed;right:12px;bottom:72px;z-index:2147483647;width:min(350px,calc(100vw - 24px));max-height:min(520px,calc(100vh - 24px));box-sizing:border-box;flex-direction:column;border:1px solid #d9dee4;border-radius:11px;background:#fff;box-shadow:0 12px 32px rgba(31,41,55,.22);color:#4b5563;font:600 11px/1.45 system-ui,sans-serif;overflow:hidden;user-select:none';
+      const diagHeader = document.createElement('div');
+      diagHeader.style.cssText = 'display:flex;align-items:center;gap:6px;padding:8px 9px;border-bottom:1px solid #eceff2;background:#fafafa;cursor:grab;touch-action:none';
+      const diagTitle = document.createElement('span');
+      diagTitle.textContent = 'AUTO_KILLER 오류 진단';
+      diagTitle.style.cssText = 'flex:1;font:800 11px/1.2 system-ui,sans-serif;color:#394150';
+      const diagMin = makeButton('—', '#f3f4f6'); diagMin.style.cssText += 'padding:2px 6px';
+      const diagClose = makeButton('×', '#f3f4f6'); diagClose.style.cssText += 'padding:2px 6px';
+      diagHeader.append(diagTitle, diagMin, diagClose);
+
+      const body = document.createElement('div');
+      body.style.cssText = 'display:flex;min-height:0;flex-direction:column;gap:8px;overflow:auto;padding:10px;user-select:text';
+      windowBox.append(diagHeader, body);
+      shadow.append(windowBox);
+
+      let minimized = false;
+      const setMinimized = value => {
+        minimized = !!value;
+        body.style.display = minimized ? 'none' : 'flex';
+        windowBox.style.width = minimized ? '220px' : 'min(350px,calc(100vw - 24px))';
+        diagMin.textContent = minimized ? '+' : '—';
+      };
+      diagMin.onclick = event => { event.stopPropagation(); setMinimized(!minimized); };
+      diagClose.onclick = event => { event.stopPropagation(); windowBox.style.display = 'none'; };
+
+      let drag = null;
+      const startDrag = event => {
+        if (event.target === diagMin || event.target === diagClose) return;
+        const point = event.touches?.[0] || event;
+        const rect = windowBox.getBoundingClientRect();
+        drag = { x: point.clientX, y: point.clientY, left: rect.left, top: rect.top };
+        windowBox.style.right = 'auto';
+        windowBox.style.bottom = 'auto';
+        event.preventDefault?.();
+      };
+      const moveDrag = event => {
+        if (!drag) return;
+        const point = event.touches?.[0] || event;
+        const left = Math.max(0, Math.min(drag.left + point.clientX - drag.x, innerWidth - windowBox.offsetWidth));
+        const top = Math.max(0, Math.min(drag.top + point.clientY - drag.y, innerHeight - windowBox.offsetHeight));
+        windowBox.style.left = left + 'px';
+        windowBox.style.top = top + 'px';
+        event.preventDefault?.();
+      };
+      const endDrag = () => { drag = null; };
+      diagHeader.addEventListener('mousedown', startDrag);
+      diagHeader.addEventListener('touchstart', startDrag, { passive: false });
+      window.addEventListener('mousemove', moveDrag);
+      window.addEventListener('touchmove', moveDrag, { passive: false });
+      window.addEventListener('mouseup', endDrag);
+      window.addEventListener('touchend', endDrag);
+
+      const updateTrigger = () => {
+        const active = diagnosticEnabled();
+        triggerButton.textContent = active ? '진단 중' : '오류 제보';
+        triggerButton.style.background = active ? '#fff6dc' : '#f7f7f8';
+        triggerButton.style.borderColor = active ? '#e4c96a' : '#e1e4e8';
+        triggerButton.style.color = active ? '#6b5617' : '#59616d';
+      };
+
+      const actionButton = (text, primary = false) => {
+        const button = makeButton(text, primary ? '#eceff1' : '#fff', '#4b5563');
+        button.style.cssText += 'width:100%;padding:7px 9px';
+        return button;
+      };
+
+      const render = () => {
+        updateTrigger();
+        body.replaceChildren();
+        const active = diagnosticEnabled();
+        const hasReport = !!diagnosticState?.events?.length;
+
+        if (!active) {
+          const intro = document.createElement('div');
+          intro.innerHTML = '<b>오류 진단을 시작하시겠습니까?</b><br><br>동의 후부터 최대 30분 동안 AUTO_KILLER의 작동 단계와 브라우저 환경 정보만 기록합니다.<br><br><b>수집하지 않음</b><br>• ZETA 대화 내용<br>• GPT에 보낸 프롬프트/답변 내용<br>• 캐릭터명·사용자명<br>• 로그인 정보·쿠키·토큰<br><br><b>기록함</b><br>• AUTO_KILLER/로더 버전과 실제 코어 경로<br>• 브라우저·운영체제/유저스크립트 환경<br>• 필요한 DOM 요소의 개수·존재 여부<br>• 처리 단계, 성공/실패, 글자 수·턴 수 같은 숫자 정보<br><br>기록은 <b>오류 수정 및 호환성 패치 확인 용도로만</b> 사용하며 자동 전송되지 않습니다. 오류를 재현한 뒤 직접 결과를 복사하거나 TXT로 저장해 전달해주세요.';
+          intro.style.cssText = 'padding:8px;border:1px solid #e5e7eb;border-radius:8px;background:#fafafa;color:#59616d;font:500 10px/1.5 system-ui,sans-serif;word-break:keep-all';
+
+          const start = actionButton('진단 시작', true);
+          start.onclick = async () => {
+            start.disabled = true;
+            await diagnosticStart();
+            say('오류 진단을 시작했어요. 이제 오류가 발생하는 과정을 다시 실행해주세요.');
+            render();
+          };
+          body.append(intro, start);
+
+          if (hasReport) {
+            const previous = document.createElement('div');
+            previous.textContent = '이전 진단 기록이 남아 있습니다. 새 진단을 시작하면 이전 기록은 교체됩니다.';
+            previous.style.cssText = 'color:#7b818a;font:500 9.5px/1.4 system-ui,sans-serif';
+            const copy = actionButton('이전 진단 결과 복사');
+            const save = actionButton('이전 진단 TXT 저장');
+            const clear = actionButton('이전 기록 삭제');
+            copy.onclick = async () => {
+              const ok = await diagnosticCopyReport();
+              say(ok ? '진단 결과를 클립보드에 복사했어요.' : '진단 결과 복사에 실패했어요.', !ok);
+            };
+            save.onclick = async () => { await diagnosticSaveReportTxt(); say('진단 TXT 저장을 요청했어요.'); };
+            clear.onclick = async () => { await diagnosticClear(); say('진단 기록을 삭제했어요.'); render(); };
+            body.append(previous, copy, save, clear);
+          }
+          return;
+        }
+
+        const live = document.createElement('div');
+        const remaining = Math.max(0, Math.ceil((diagnosticState.expiresAt - Date.now()) / 60000));
+        live.innerHTML = '<b>● 진단 기록 중</b><br>개인 대화·프롬프트·GPT 답변 내용은 기록하지 않습니다.<br>오류를 재현한 뒤 아래 버튼으로 결과를 전달해주세요.<br>약 ' + remaining + '분 후 자동 종료됩니다.';
+        live.style.cssText = 'padding:8px;border:1px solid #ead486;border-radius:8px;background:#fff9e7;color:#62521d;font:550 10px/1.5 system-ui,sans-serif';
+
+        const snapshot = document.createElement('div');
+        snapshot.textContent = '현재 기록: ' + diagnosticState.events.length + '개 · 마지막 단계: ' + (diagnosticState.lastStage || '-');
+        snapshot.style.cssText = 'color:#747b85;font:500 9.5px/1.35 system-ui,sans-serif;overflow-wrap:anywhere';
+
+        const copy = actionButton('진단 결과 복사', true);
+        const save = actionButton('진단 결과 TXT 저장');
+        const stop = actionButton('진단 중지');
+        const clear = actionButton('진단 중지 + 기록 삭제');
+
+        copy.onclick = async () => {
+          await diagnosticLog('REPORT_COPY_REQUESTED', { dom: diagnosticDomSnapshot() });
+          const ok = await diagnosticCopyReport();
+          say(ok ? '진단 결과를 클립보드에 복사했어요.' : '진단 결과 복사에 실패했어요.', !ok);
+          render();
+        };
+        save.onclick = async () => {
+          await diagnosticLog('REPORT_TXT_REQUESTED', { dom: diagnosticDomSnapshot() });
+          await diagnosticSaveReportTxt();
+          say('진단 TXT 저장을 요청했어요.');
+          render();
+        };
+        stop.onclick = async () => {
+          await diagnosticStop();
+          say('진단 기록을 중지했어요. 기존 결과는 복사하거나 TXT로 저장할 수 있어요.');
+          render();
+        };
+        clear.onclick = async () => {
+          await diagnosticStop();
+          await diagnosticClear();
+          say('진단을 중지하고 기록을 삭제했어요.');
+          render();
+        };
+        body.append(live, snapshot, copy, save, stop, clear);
+      };
+
+      triggerButton.onclick = event => {
+        event.stopPropagation();
+        setMinimized(false);
+        render();
+        windowBox.style.display = 'flex';
+      };
+      updateTrigger();
+    }
+
     const waitForScriptableBridge = () => window.__AUTO_KILLER_SCRIPTABLE__ === true ? sleep(350) : Promise.resolve();
 
     function encodeTransfer(value) {
@@ -224,6 +834,16 @@
 
     async function handoffJob(job, say, userscriptMessage, preparedTab = null) {
       const temporaryChat = temporaryChatEnabled();
+      diagnosticCheckpoint('JOB_HANDOFF_START', {
+        type: job?.type || 'unknown',
+        promptLength: String(job?.text || '').length,
+        contextCount: Number(job?.contextCount || 0),
+        characterContextCount: Number(job?.characterContextCount || 0),
+        summaryMaxLength: Number(job?.summaryMaxLength || 0),
+        temporaryChat,
+        preparedTab: !!preparedTab,
+        newTabSetting: localStorage.getItem(NEW_TAB_MODE_KEY) !== 'false'
+      });
       const baseGptUrl = temporaryChat ? temporaryGptUrl(GPT_URL) : GPT_URL;
 
       if (BOOKMARKLET_MODE) {
@@ -231,6 +851,7 @@
         const payload = encodeTransfer(bookmarkletJob);
         say(`${userscriptMessage}${temporaryChat ? ' 임시채팅으로' : ''} GPT로 이동한 뒤 같은 북마클릿을 다시 눌러주세요.`);
         await sleep(300);
+        diagnosticCheckpoint('NAVIGATE_TO_GPT', { method: 'bookmarklet-location-replace', temporaryChat });
         location.replace(`${browserOnlyGptUrl(baseGptUrl)}#${BOOKMARKLET_JOB_HASH}=${payload}`);
         return;
       }
@@ -261,14 +882,17 @@
         say(temporaryChat ? `${userscriptMessage} 임시채팅으로 여는 중…` : userscriptMessage);
         if (ONECLICK_IOS) {
           if (iosPreparedTab) {
+            diagnosticCheckpoint('NAVIGATE_TO_GPT', { method: 'ios-prepared-tab', temporaryChat, targetVerified: targetGptVerified });
             iosPreparedTab.location.href = target;
             try { iosPreparedTab.focus(); } catch (error) {}
           } else {
             await sleep(120);
+            diagnosticCheckpoint('NAVIGATE_TO_GPT', { method: 'ios-location-replace', temporaryChat, targetVerified: targetGptVerified });
             location.replace(target);
           }
           return;
         }
+        diagnosticCheckpoint('NAVIGATE_TO_GPT', { method: 'oneclick-new-tab', temporaryChat, targetVerified: targetGptVerified });
         const transferTab = window.open(target, '_blank');
         if (transferTab && !transferTab.closed) {
           try { transferTab.focus(); } catch (error) {}
@@ -626,14 +1250,23 @@
         resizeCorner.style.display = display;
         if (!visible) hideResizeHint();
       };
-      const say = (text, error = false) => { status.textContent = text; status.style.color = error ? '#737983' : '#7b818a'; status.style.display = text && root.dataset.minimized !== 'true' && root.dataset.compact !== 'true' ? 'block' : 'none'; };
+      const say = (text, error = false) => {
+        status.textContent = text;
+        status.style.color = error ? '#737983' : '#7b818a';
+        status.style.display = text && root.dataset.minimized !== 'true' && root.dataset.compact !== 'true' ? 'block' : 'none';
+        if (error) void diagnosticLog('UI_ERROR', { uiErrorLength: String(text || '').length });
+      };
       const makeButton = (text, color, textColor = '#4b5563') => { const b = document.createElement('button'); b.type = 'button'; b.textContent = text; b.style.cssText = `color-scheme:light;appearance:none;border:1px solid #e1e4e8;border-radius:7px;padding:5px 8px;background:${color};box-shadow:none;color:${textColor};font:700 11px/1.15 system-ui,sans-serif;white-space:nowrap`; return b; };
       const minimize = makeButton('—', '#f3f4f6', '#4b5563'); minimize.style.cssText += 'padding:1px 5px;border-radius:6px;font-size:10px';
       const compactToggle = makeButton('□', '#f3f4f6', '#4b5563'); compactToggle.title = '작은 플로팅 패널로 전환'; compactToggle.style.cssText += `padding:1px 5px;border-radius:6px;font-size:9px;display:${mode === 'zeta' ? 'inline-block' : 'none'}`;
+      const diagnosticButton = makeButton('오류 제보', '#f7f7f8', '#59616d');
+      diagnosticButton.title = '오류 진단 시작 / 결과 복사';
+      diagnosticButton.style.cssText += 'padding:2px 5px;border-radius:6px;font-size:9px';
       const close = makeButton('×', '#f3f4f6', '#4b5563'); close.style.cssText += 'padding:1px 5px;border-radius:6px;font-size:11px'; close.onclick = () => host.remove();
-      header.append(dots, title, minimize, compactToggle, close);
+      header.append(dots, title, diagnosticButton, minimize, compactToggle, close);
+      attachDiagnosticUi(shadow, root, mode, makeButton, say, diagnosticButton);
 
-      // 2.25 구형 로더 → 2.25.4.8 통합 로더 1회 재설치 안내.
+      // 2.25 구형 로더 → 2.25.5.0 통합 로더 1회 재설치 안내.
       // 새 로더는 core 실행 전에 __AUTO_KILLER_STORAGE_BRIDGE__를 true로 세팅하므로 안내가 자동으로 사라진다.
       const needsLoaderMigration = mode === 'zeta'
         && ONECLICK_BRIDGE
@@ -641,10 +1274,10 @@
       const loaderMigrationNotice = document.createElement('div');
       loaderMigrationNotice.style.cssText = `display:${needsLoaderMigration ? 'flex' : 'none'};flex-direction:column;gap:6px;padding:8px 9px;border:1px solid #e6c96f;border-radius:9px;background:#fff8dc;color:#4d3f18;font:650 11px/1.4 system-ui,sans-serif`;
       const loaderMigrationText = document.createElement('div');
-      loaderMigrationText.innerHTML = '<b>⚠ AUTO_KILLER 중요 업데이트</b><br>새 자동 업데이트 방식 적용을 위해 <b>2.25.4.8을 한 번 다시 설치</b>해주세요.';
+      loaderMigrationText.innerHTML = '<b>⚠ AUTO_KILLER 중요 업데이트</b><br>새 자동 업데이트 방식 적용을 위해 <b>2.25.5.0을 한 번 다시 설치</b>해주세요.';
       const loaderMigrationButton = document.createElement('button');
       loaderMigrationButton.type = 'button';
-      loaderMigrationButton.textContent = '2.25.4.8 업데이트 설치';
+      loaderMigrationButton.textContent = '2.25.5.0 업데이트 설치';
       loaderMigrationButton.style.cssText = 'color-scheme:light;appearance:none;align-self:flex-start;border:1px solid #d5b952;border-radius:7px;padding:6px 9px;background:#fff;color:#4d3f18;font:800 11px/1.15 system-ui,sans-serif;cursor:pointer';
       loaderMigrationButton.onclick = () => {
         try {
@@ -2249,6 +2882,14 @@
       say('로드된 대화를 수집하는 중…');
       const collected = collectConversation(characterLimit);
       const conversation = collected.items;
+      diagnosticCheckpoint('ZETA_CONVERSATION_COLLECTED', {
+        operation: 'generate',
+        requestedCharacterCount: collected.requestedCharacterCount,
+        availableCharacterCount: collected.availableCharacterCount,
+        selectedCharacterCount: collected.selectedCharacterCount,
+        itemCount: conversation.length,
+        virtualCacheTurns: virtualConversationCache.turns.size
+      });
       if (!collected.availableCharacterCount || conversation.length < 2) {
         closeTransferTab(transferTab);
         say('생성에 사용할 대화를 충분히 찾지 못했어요.', true);
@@ -2313,6 +2954,15 @@
       say('요약할 대화를 수집하는 중…');
       const collected = collectConversation(characterLimit);
       const conversation = collected.items;
+      diagnosticCheckpoint('ZETA_CONVERSATION_COLLECTED', {
+        operation: 'summary',
+        requestedCharacterCount: collected.requestedCharacterCount,
+        availableCharacterCount: collected.availableCharacterCount,
+        selectedCharacterCount: collected.selectedCharacterCount,
+        itemCount: conversation.length,
+        maxLength,
+        virtualCacheTurns: virtualConversationCache.turns.size
+      });
       if (!collected.availableCharacterCount || conversation.length < 2) {
         closeTransferTab(transferTab);
         say('요약할 대화를 충분히 찾지 못했어요.', true);
@@ -2362,6 +3012,11 @@
       if (!editor) { closeTransferTab(transferTab); say('편집창을 못 찾았어요.', true); button.disabled = false; return; }
       const sourceText = editor.value;
       const requestText = extraInstruction ? `${sourceText}\n\n${extraInstruction}` : sourceText;
+      diagnosticCheckpoint('ZETA_REVIEW_SOURCE_READY', {
+        sourceLength: String(sourceText || '').length,
+        requestLength: String(requestText || '').length,
+        extraInstructionPresent: !!extraInstruction
+      });
       const job = { schema: JOB_SCHEMA, id: `${Date.now()}-${Math.random().toString(36).slice(2)}`, type: 'review', text: requestText, room: location.href.split('#')[0] };
       document.querySelector('path[d*="12.5 3.5-9 9m9 0-9-9"]')?.closest('button')?.click();
       await handoffJob(job, say, 'GPT로 이동해 검토를 시작해요.', transferTab);
@@ -2376,6 +3031,7 @@
     }
 
     async function applyToZeta(text, say, type = 'review') {
+      diagnosticCheckpoint('ZETA_APPLY_START', { type, resultLength: String(text || '').length, dom: diagnosticDomSnapshot() });
       let result = (type === 'review' || type === 'generate')
         ? cleanRpTransferText(text)
         : text;
@@ -2390,19 +3046,20 @@
         // 전송/저장 버튼은 누르지 않은 채 사용자의 직접 확인·전송을 기다린다.
         say('일반 채팅 입력창을 찾는 중…');
         const chatInput = await waitForResult(findChatInput, 30000, 250);
-        if (!chatInput) { say('30초 동안 일반 채팅 입력창을 찾지 못했어요.', true); return false; }
+        if (!chatInput) { diagnosticFail('ZETA_CHAT_INPUT_NOT_FOUND', { dom: diagnosticDomSnapshot() }); say('30초 동안 일반 채팅 입력창을 찾지 못했어요.', true); return false; }
 
         say('새 장면을 일반 채팅 입력창에 넣는 중…');
         const inserted = await insertPrompt(chatInput, result);
-        if (!inserted) { say('일반 채팅 입력창에 새 장면을 넣지 못했어요.', true); return false; }
+        if (!inserted) { diagnosticFail('ZETA_GENERATED_TEXT_INSERT_FAILED', { resultLength: result.length }); say('일반 채팅 입력창에 새 장면을 넣지 못했어요.', true); return false; }
 
+        diagnosticCheckpoint('ZETA_APPLY_SUCCESS', { type: 'generate', resultLength: result.length });
         say('새 장면을 일반 채팅 입력창에 넣었어요. 내용을 확인한 뒤 직접 전송해주세요.');
         return true;
       }
 
       say('제타 화면이 완전히 로딩되기를 기다리는 중…');
       let edit = await waitForResult(findVisibleEditButton, 30000, 300);
-      if (!edit) { say('30초 동안 수정 버튼을 찾지 못했어요.', true); return false; }
+      if (!edit) { diagnosticFail('ZETA_EDIT_BUTTON_NOT_FOUND', { dom: diagnosticDomSnapshot() }); say('30초 동안 수정 버튼을 찾지 못했어요.', true); return false; }
       let editor = null;
       for (let attempt = 1; attempt <= 3 && !editor; attempt += 1) {
         say(`수정창 열기 시도 ${attempt}/3…`);
@@ -2413,10 +3070,10 @@
           if (!edit) break;
         }
       }
-      if (!editor) { say('수정 버튼은 찾았지만 편집창이 열리지 않았어요.', true); return false; }
+      if (!editor) { diagnosticFail('ZETA_EDITOR_NOT_OPENED', { dom: diagnosticDomSnapshot() }); say('수정 버튼은 찾았지만 편집창이 열리지 않았어요.', true); return false; }
       say('교정문을 편집창에 반영하는 중…');
       const valueSetter = Object.getOwnPropertyDescriptor(Object.getPrototypeOf(editor), 'value')?.set;
-      if (!valueSetter) { say('편집창의 텍스트 입력 기능을 찾지 못했어요.', true); return false; }
+      if (!valueSetter) { diagnosticFail('ZETA_EDITOR_VALUE_SETTER_MISSING', { tag: editor?.tagName || '' }); say('편집창의 텍스트 입력 기능을 찾지 못했어요.', true); return false; }
       editor.focus();
       valueSetter.call(editor, result);
       editor.dispatchEvent(new InputEvent('input', { bubbles: true, inputType: 'insertText', data: result }));
@@ -2432,6 +3089,7 @@
       save.click();
       const closed = await waitForResult(() => !editor.isConnected, 10000, 250);
       if (!closed) { say('저장 버튼을 눌렀지만 수정창이 닫히지 않았어요.', true); return false; }
+      diagnosticCheckpoint('ZETA_APPLY_SUCCESS', { type: 'review', resultLength: result.length, autoSave: true });
       say('수정된 답변 자동 적용 완료');
       return true;
     }
@@ -2735,6 +3393,12 @@
 
     function watchForGptResponse(job, say, state) {
       say('GPT 답변을 기다리는 중…');
+      diagnosticCheckpoint('GPT_RESPONSE_WATCH_START', {
+        baselineAssistantCount: Number(job?.baselineAssistantCount || 0),
+        baselineTurnIdPresent: !!job?.baselineTurnId,
+        baselineAssistantLength: String(job?.baselineAssistantText || '').length,
+        dom: diagnosticDomSnapshot()
+      });
       let finished = false;
       let confirmTimer = null;
       let fallbackTimer = null;
@@ -2764,6 +3428,7 @@
           } catch (error) {}
         }
 
+        diagnosticCheckpoint('GPT_RESPONSE_COMPLETE', { resultLength: String(finalText || '').length, dom: diagnosticDomSnapshot() });
         const response = {
           id: job.id,
           type: job.type || 'review',
@@ -2790,12 +3455,13 @@
 
           // iPhone/iPad의 같은 탭 OneClick은 GM 저장과 URL hash를 함께 사용한다.
           if (job.oneclick && !job.newTab) {
-            try { await sharedStorage.set(RESPONSE_KEY, response); }
-            catch (error) { console.warn('[AUTO_KILLER Core] iOS GM 결과 백업 실패, hash 복귀 계속', error); }
+            try { await sharedStorage.set(RESPONSE_KEY, response); diagnosticCheckpoint('RESPONSE_STORAGE_OK', { path: 'ios-oneclick', type: response.type, resultLength: String(finalText || '').length }); }
+            catch (error) { diagnosticFail('RESPONSE_STORAGE_BACKUP_FAILED', { path: 'ios-oneclick', errorName: error?.name || 'Error', errorMessage: diagnosticSanitizeString(error?.message || String(error), 200) }); console.warn('[AUTO_KILLER Core] iOS GM 결과 백업 실패, hash 복귀 계속', error); }
             try { await sharedStorage.delete(JOB_KEY); } catch (error) {}
             say('제타로 전달 완료 · 제타로 돌아가는 중');
             state.textContent = '완료';
             gptBusy = false;
+            diagnosticCheckpoint('RETURN_REQUESTED', { method: 'ios-oneclick-location-replace', delayMs: 250 });
             setTimeout(() => {
               location.replace(`${response.room.split('#')[0]}#${BOOKMARKLET_RESULT_HASH}=${encodeTransfer(response)}`);
             }, 250);
@@ -2803,11 +3469,13 @@
           }
 
           await sharedStorage.set(RESPONSE_KEY, response);
+          diagnosticCheckpoint('RESPONSE_STORAGE_OK', { path: 'shared-storage', type: response.type, resultLength: String(finalText || '').length });
           await sharedStorage.delete(JOB_KEY);
           say('제타로 전달 완료 · 원래 제타 탭으로 돌아가는 중');
           state.textContent = '완료';
           gptBusy = false;
 
+          diagnosticCheckpoint('RETURN_REQUESTED', { method: job.newTab ? 'close-new-tab-or-fallback' : 'location-replace', delayMs: 650, openerPresent: !!window.opener });
           setTimeout(() => {
             const fallbackUrl = job.oneclick
               ? `${response.room.split('#')[0]}#${BOOKMARKLET_RESULT_HASH}=${encodeTransfer(response)}`
@@ -2823,6 +3491,7 @@
             }
           }, 650);
         } catch (error) {
+          diagnosticFail('RESPONSE_STORAGE_FAILED', { errorName: error?.name || 'Error', errorMessage: diagnosticSanitizeString(error?.message || String(error), 200) });
           console.error('[AUTO_KILLER Core] 응답 저장 실패', error);
           say('응답 저장에 실패했어요. Userscripts의 웹사이트 권한을 확인해주세요.', true);
           state.textContent = '저장 오류';
@@ -2835,11 +3504,11 @@
 
         const turns = assistantTurns();
         const answer = turns[turns.length - 1] || null;
-        if (!answer) return;
+        if (!answer) { diagnosticCheckpoint('GPT_WAIT_NO_ASSISTANT', { detectedTurns: turns.length, dom: diagnosticDomSnapshot() }); return; }
 
         const finalMode = job.type === 'review' || job.type === 'generate';
         const text = assistantText(answer, finalMode);
-        if (!text) return;
+        if (!text) { diagnosticCheckpoint('GPT_WAIT_ASSISTANT_NO_TEXT', { detectedTurns: turns.length, dom: diagnosticDomSnapshot() }); return; }
 
         const turnId = currentTurnId(answer);
         const baselineCount = Number(job.baselineAssistantCount || 0);
@@ -2850,9 +3519,10 @@
 
         // data-turn / copy 버튼 같은 특정 ChatGPT DOM에 의존하지 않는다.
         // 새 assistant 응답이라고 판단할 수 있는 신호가 하나도 없으면 기존 응답으로 간주한다.
-        if (!isNewById && !isNewByCount && !isNewByText) return;
+        if (!isNewById && !isNewByCount && !isNewByText) { diagnosticCheckpoint('GPT_WAIT_NOT_NEW', { detectedTurns: turns.length, baselineCount, latestLength: text.length, baselineLength: baselineText.length, turnIdPresent: !!turnId }); return; }
 
         if (isGptGenerating()) {
+          diagnosticCheckpoint('GPT_WAIT_GENERATING', { detectedTurns: turns.length, latestLength: text.length, dom: diagnosticDomSnapshot() });
           stableCandidateKey = '';
           stableCandidateText = '';
           stableSince = 0;
@@ -2864,14 +3534,16 @@
           stableCandidateKey = candidateKey;
           stableCandidateText = text;
           stableSince = Date.now();
+          diagnosticCheckpoint('GPT_RESPONSE_CANDIDATE', { detectedTurns: turns.length, latestLength: text.length, turnIdPresent: !!turnId });
           return;
         }
 
         // 모바일 Safari/Firefox에서는 copy 버튼 DOM이 없거나 늦게 생길 수 있으므로
         // 답변 텍스트가 생성 종료 후 일정 시간 변하지 않으면 완료로 판정한다.
-        if (Date.now() - stableSince < 1400) return;
+        if (Date.now() - stableSince < 1400) { diagnosticCheckpoint('GPT_WAIT_STABILITY', { stableForMs: Date.now() - stableSince, latestLength: text.length }); return; }
         if (confirmTimer) return;
 
+        diagnosticCheckpoint('GPT_RESPONSE_STABLE', { stableForMs: Date.now() - stableSince, latestLength: text.length });
         confirmTimer = setTimeout(async () => {
           confirmTimer = null;
           if (finished || isGptGenerating()) return;
@@ -2911,6 +3583,7 @@
       timeoutTimer = setTimeout(() => {
         if (finished) return;
         cleanup();
+        diagnosticFail('GPT_RESPONSE_TIMEOUT', { dom: diagnosticDomSnapshot() });
         say('답변 대기 시간이 초과됐어요.', true);
         state.textContent = '오류';
         gptBusy = false;
@@ -2953,6 +3626,16 @@
 
     async function runOnGpt(job, say, state) {
       if (!job || !job.id || gptBusy || job.id === lastJobId) return;
+      diagnosticCheckpoint('GPT_JOB_RECEIVED', {
+        type: job?.type || 'unknown',
+        stage: job?.stage || 'new',
+        promptLength: String(job?.text || '').length,
+        temporaryChat: !!job?.temporaryChat,
+        newTab: !!job?.newTab,
+        oneclick: !!job?.oneclick,
+        targetVerified: !!job?.targetGptVerified,
+        dom: diagnosticDomSnapshot()
+      });
 
       // Android 최초 연결은 chatgpt.com 루트에서 payload를 받은 뒤 같은 탭에서 /g/ 역병킬러로 이동한다.
       // /g/ 역병킬러가 확인되지 않으면 일반 ChatGPT에는 절대 프롬프트를 제출하지 않는다.
@@ -2981,8 +3664,10 @@
       }
 
       say('GPT 입력창을 기다리는 중…');
+      diagnosticCheckpoint('GPT_PROMPT_SEARCH_START', { dom: diagnosticDomSnapshot() });
       const prompt = await waitForResult(findGptPrompt, 30000, 200);
       if (!prompt) {
+        diagnosticFail('GPT_PROMPT_NOT_FOUND', { promptDiagnostics: gptPromptDiagnostics(), dom: diagnosticDomSnapshot() });
         console.warn('[AUTO_KILLER Core] GPT 입력창 탐색 실패', gptPromptDiagnostics());
         say('GPT 입력창을 못 찾았어요. ChatGPT 화면을 새로고침한 뒤 다시 시도해주세요.', true);
         state.textContent = '오류';
@@ -2990,6 +3675,7 @@
         return;
       }
 
+      diagnosticCheckpoint('GPT_PROMPT_FOUND', { tag: prompt?.tagName || '', idPresent: !!prompt?.id, role: prompt?.getAttribute?.('role') || '', contenteditable: prompt?.getAttribute?.('contenteditable') || '', dom: diagnosticDomSnapshot() });
       const baselineTurns = assistantTurns();
       const baselineTurn = baselineTurns[baselineTurns.length - 1] || null;
       const submittedJob = {
@@ -3005,15 +3691,19 @@
 
       say('GPT 프롬프트를 자동 입력하는 중…');
       const inserted = await insertPrompt(prompt, job.text);
+      diagnosticCheckpoint('GPT_PROMPT_INSERT_RESULT', { inserted: !!inserted, requestedLength: String(job.text || '').length, observedLength: editableText(prompt).length });
       if (!inserted) {
+        diagnosticFail('GPT_PROMPT_INSERT_FAILED', { requestedLength: String(job.text || '').length, observedLength: editableText(prompt).length, dom: diagnosticDomSnapshot() });
         say('GPT 입력창에 내용을 넣지 못했어요.', true);
         state.textContent = '오류';
         gptBusy = false;
         return;
       }
 
+      diagnosticCheckpoint('GPT_SUBMIT_SEARCH_START', { dom: diagnosticDomSnapshot() });
       const submit = await waitForResult(() => findGptSubmitButton(prompt), 10000, 200);
       if (!submit) {
+        diagnosticFail('GPT_SUBMIT_NOT_FOUND', { promptDiagnostics: gptPromptDiagnostics(), dom: diagnosticDomSnapshot() });
         console.warn('[AUTO_KILLER Core] GPT 전송 버튼 탐색 실패', gptPromptDiagnostics());
         say('전송 버튼을 못 찾았어요. ChatGPT 화면을 새로고침한 뒤 다시 시도해주세요.', true);
         state.textContent = '오류';
@@ -3022,15 +3712,18 @@
       }
       let attempts = 0;
       while ((submit.disabled || submit.getAttribute?.('aria-disabled') === 'true') && attempts++ < 30) await sleep(200);
-      if (submit.disabled || submit.getAttribute?.('aria-disabled') === 'true') { say('전송 버튼이 활성화되지 않았어요.', true); state.textContent = '오류'; gptBusy = false; return; }
+      if (submit.disabled || submit.getAttribute?.('aria-disabled') === 'true') { diagnosticFail('GPT_SUBMIT_DISABLED', { dom: diagnosticDomSnapshot() }); say('전송 버튼이 활성화되지 않았어요.', true); state.textContent = '오류'; gptBusy = false; return; }
 
+      diagnosticCheckpoint('GPT_SUBMIT_READY', { tag: submit?.tagName || '', testId: submit?.getAttribute?.('data-testid') || '', ariaLabel: submit?.getAttribute?.('aria-label') || '' });
       say('자동 전송 · 답변을 기다리는 중…');
       submit.click();
+      diagnosticCheckpoint('GPT_SUBMITTED', { baselineAssistantCount: submittedJob.baselineAssistantCount, baselineTurnIdPresent: !!submittedJob.baselineTurnId, baselineAssistantLength: String(submittedJob.baselineAssistantText || '').length });
       watchForGptResponse(submittedJob, say, state);
     }
 
     async function init() {
       await bodyReady();
+      await diagnosticInit();
       guardAgainstLegacyPanels();
       if (/zeta-ai\.io$/i.test(location.hostname)) {
         installVirtualConversationCapture();
@@ -3057,6 +3750,7 @@
           if (applyingPending) return;
           const pending = await sharedStorage.get(RESPONSE_KEY, null);
           if (!pending || pending.room !== location.href.split('#')[0] || pending.id === attemptedPendingId) return;
+          diagnosticCheckpoint('ZETA_PENDING_RESPONSE_FOUND', { type: pending.type || 'review', resultLength: String(pending.text || '').length });
           applyingPending = true;
           attemptedPendingId = pending.id;
           try {
@@ -3066,7 +3760,8 @@
               await sharedStorage.delete(RESPONSE_KEY);
             } else {
               const applied = await applyToZeta(pending.text, say, pending.type || 'review');
-              if (applied) await sharedStorage.delete(RESPONSE_KEY);
+              if (applied) { diagnosticCheckpoint('ZETA_RESPONSE_APPLIED', { type: pending.type || 'review', resultLength: String(pending.text || '').length }); await sharedStorage.delete(RESPONSE_KEY); }
+              else diagnosticFail('ZETA_RESPONSE_APPLY_FAILED', { type: pending.type || 'review', resultLength: String(pending.text || '').length, dom: diagnosticDomSnapshot() });
             }
           } finally {
             applyingPending = false;
