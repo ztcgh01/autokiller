@@ -1,14 +1,14 @@
 /* AUTO_KILLER remote core
- * Unified remote core: 2.25.4.7
+ * Unified remote core: 2.25.4.8
  * Temporary Chat: every job starts a fresh temporary chat.
  */
 (function () {
   'use strict';
   window.__AUTO_KILLER_REMOTE_CORE_LOADED__ = true;
-  window.__AUTO_KILLER_REMOTE_CORE_VERSION__ = '2.25.4.7';
+  window.__AUTO_KILLER_REMOTE_CORE_VERSION__ = '2.25.4.8';
 
     'use strict';
-    const SCRIPT_VERSION = '2.25.4.7';
+    const SCRIPT_VERSION = '2.25.4.8';
     const GPT_URL = 'https://chatgpt.com/g/g-6a1099bd986881918e0c582d35aafb1d-yeogbyeongkilreo';
     const PANEL_ID = 'zk-tm-unified-panel-v4';
     const JOB_KEY = 'zk_current_job_v2';
@@ -633,7 +633,7 @@
       const close = makeButton('×', '#f3f4f6', '#4b5563'); close.style.cssText += 'padding:1px 5px;border-radius:6px;font-size:11px'; close.onclick = () => host.remove();
       header.append(dots, title, minimize, compactToggle, close);
 
-      // 2.25 구형 로더 → 2.25.4.7 통합 로더 1회 재설치 안내.
+      // 2.25 구형 로더 → 2.25.4.8 통합 로더 1회 재설치 안내.
       // 새 로더는 core 실행 전에 __AUTO_KILLER_STORAGE_BRIDGE__를 true로 세팅하므로 안내가 자동으로 사라진다.
       const needsLoaderMigration = mode === 'zeta'
         && ONECLICK_BRIDGE
@@ -641,10 +641,10 @@
       const loaderMigrationNotice = document.createElement('div');
       loaderMigrationNotice.style.cssText = `display:${needsLoaderMigration ? 'flex' : 'none'};flex-direction:column;gap:6px;padding:8px 9px;border:1px solid #e6c96f;border-radius:9px;background:#fff8dc;color:#4d3f18;font:650 11px/1.4 system-ui,sans-serif`;
       const loaderMigrationText = document.createElement('div');
-      loaderMigrationText.innerHTML = '<b>⚠ AUTO_KILLER 중요 업데이트</b><br>새 자동 업데이트 방식 적용을 위해 <b>2.25.4.7을 한 번 다시 설치</b>해주세요.';
+      loaderMigrationText.innerHTML = '<b>⚠ AUTO_KILLER 중요 업데이트</b><br>새 자동 업데이트 방식 적용을 위해 <b>2.25.4.8을 한 번 다시 설치</b>해주세요.';
       const loaderMigrationButton = document.createElement('button');
       loaderMigrationButton.type = 'button';
-      loaderMigrationButton.textContent = '2.25.4.7 업데이트 설치';
+      loaderMigrationButton.textContent = '2.25.4.8 업데이트 설치';
       loaderMigrationButton.style.cssText = 'color-scheme:light;appearance:none;align-self:flex-start;border:1px solid #d5b952;border-radius:7px;padding:6px 9px;background:#fff;color:#4d3f18;font:800 11px/1.15 system-ui,sans-serif;cursor:pointer';
       loaderMigrationButton.onclick = () => {
         try {
@@ -2446,11 +2446,34 @@
     let lastJobId = '';
 
     function assistantTurns() {
-      return [...document.querySelectorAll('[data-testid^="conversation-turn-"][data-turn="assistant"]')];
+      const turns = [];
+      const seen = new Set();
+
+      const add = element => {
+        if (!element || seen.has(element)) return;
+        seen.add(element);
+        turns.push(element);
+      };
+
+      document.querySelectorAll('[data-message-author-role="assistant"]').forEach(message => {
+        const turn =
+          message.closest('[data-testid^="conversation-turn-"]') ||
+          message.closest('[data-turn-id]') ||
+          message.closest('[data-turn-id-container]') ||
+          message.closest('article') ||
+          message;
+        add(turn);
+      });
+
+      document.querySelectorAll('[data-testid^="conversation-turn-"][data-turn="assistant"]').forEach(add);
+      return turns;
     }
 
     function currentTurnId(turn) {
-      return turn?.getAttribute('data-turn-id') || turn?.getAttribute('data-turn-id-container') || '';
+      if (!turn) return '';
+      return turn.getAttribute?.('data-turn-id') ||
+        turn.getAttribute?.('data-turn-id-container') ||
+        turn.getAttribute?.('data-testid') || '';
     }
 
     function writingBlockRpText(message) {
@@ -2483,7 +2506,9 @@
 
     function assistantText(turn, preserveRpFormatting = false) {
       if (!turn) return '';
-      const message = turn.querySelector('[data-message-author-role="assistant"]');
+      const message = turn.matches?.('[data-message-author-role="assistant"]')
+        ? turn
+        : turn.querySelector?.('[data-message-author-role="assistant"]');
       if (!message) return '';
 
       if (preserveRpFormatting) {
@@ -2691,6 +2716,23 @@
       }
     }
 
+    function isGptGenerating() {
+      const selectors = [
+        'button[data-testid="stop-button"]',
+        'button[aria-label="Stop generating"]',
+        'button[aria-label="Stop"]',
+        'button[aria-label="생성 중지"]',
+        'button[aria-label="중지"]'
+      ];
+      return selectors.some(selector => {
+        try {
+          return [...document.querySelectorAll(selector)].some(isVisibleGptElement);
+        } catch (error) {
+          return false;
+        }
+      });
+    }
+
     function watchForGptResponse(job, say, state) {
       say('GPT 답변을 기다리는 중…');
       let finished = false;
@@ -2698,6 +2740,9 @@
       let fallbackTimer = null;
       let timeoutTimer = null;
       let observer = null;
+      let stableCandidateKey = '';
+      let stableCandidateText = '';
+      let stableSince = 0;
 
       const cleanup = () => {
         if (observer) observer.disconnect();
@@ -2787,32 +2832,66 @@
 
       const checkCompletion = async () => {
         if (finished) return;
+
         const turns = assistantTurns();
         const answer = turns[turns.length - 1] || null;
         if (!answer) return;
+
+        const finalMode = job.type === 'review' || job.type === 'generate';
+        const text = assistantText(answer, finalMode);
+        if (!text) return;
+
         const turnId = currentTurnId(answer);
-        if (!turnId || turnId === job.baselineTurnId) return;
-        if (document.querySelector('button[data-testid="stop-button"]')) return;
-        const copy = answer.querySelector('button[data-testid="copy-turn-action-button"]');
-        if (!copy || copy.disabled) return;
-        const firstText = assistantText(answer, job.type === 'review' || job.type === 'generate');
-        if (!firstText || confirmTimer) return;
+        const baselineCount = Number(job.baselineAssistantCount || 0);
+        const baselineText = String(job.baselineAssistantText || '');
+        const isNewById = !!turnId && !!job.baselineTurnId && turnId !== job.baselineTurnId;
+        const isNewByCount = turns.length > baselineCount;
+        const isNewByText = text !== baselineText;
+
+        // data-turn / copy 버튼 같은 특정 ChatGPT DOM에 의존하지 않는다.
+        // 새 assistant 응답이라고 판단할 수 있는 신호가 하나도 없으면 기존 응답으로 간주한다.
+        if (!isNewById && !isNewByCount && !isNewByText) return;
+
+        if (isGptGenerating()) {
+          stableCandidateKey = '';
+          stableCandidateText = '';
+          stableSince = 0;
+          return;
+        }
+
+        const candidateKey = turnId || `count:${turns.length}`;
+        if (candidateKey !== stableCandidateKey || text !== stableCandidateText) {
+          stableCandidateKey = candidateKey;
+          stableCandidateText = text;
+          stableSince = Date.now();
+          return;
+        }
+
+        // 모바일 Safari/Firefox에서는 copy 버튼 DOM이 없거나 늦게 생길 수 있으므로
+        // 답변 텍스트가 생성 종료 후 일정 시간 변하지 않으면 완료로 판정한다.
+        if (Date.now() - stableSince < 1400) return;
+        if (confirmTimer) return;
 
         confirmTimer = setTimeout(async () => {
           confirmTimer = null;
-          if (finished) return;
+          if (finished || isGptGenerating()) return;
+
           const latestTurns = assistantTurns();
           const latest = latestTurns[latestTurns.length - 1] || null;
-          if (!latest || currentTurnId(latest) !== turnId) return;
-          if (document.querySelector('button[data-testid="stop-button"]')) return;
-          const latestCopy = latest.querySelector('button[data-testid="copy-turn-action-button"]');
-          if (!latestCopy || latestCopy.disabled) return;
-          const finalText = assistantText(latest, job.type === 'review' || job.type === 'generate');
-          if (!finalText || finalText !== firstText) return;
+          if (!latest) return;
+
+          const latestText = assistantText(latest, finalMode);
+          if (!latestText || latestText !== stableCandidateText) {
+            stableCandidateKey = '';
+            stableCandidateText = '';
+            stableSince = 0;
+            return;
+          }
+
           finished = true;
           cleanup();
-          await finish(finalText);
-        }, 80);
+          await finish(latestText);
+        }, 350);
       };
 
       observer = new MutationObserver(() => {
@@ -2827,7 +2906,7 @@
 
       fallbackTimer = setInterval(() => {
         checkCompletion().catch(error => console.error('[AUTO_KILLER Core] 완료 백업 감지 오류', error));
-      }, 1200);
+      }, 700);
 
       timeoutTimer = setTimeout(() => {
         if (finished) return;
@@ -2917,6 +2996,8 @@
         ...job,
         stage: 'submitted',
         baselineTurnId: currentTurnId(baselineTurn),
+        baselineAssistantCount: baselineTurns.length,
+        baselineAssistantText: assistantText(baselineTurn, job.type === 'review' || job.type === 'generate'),
         submittedAt: Date.now()
       };
       try { sessionStorage.setItem(GPT_SESSION_KEY, JSON.stringify(submittedJob)); } catch (error) {}
