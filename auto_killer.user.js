@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         AUTO_KILLER
 // @namespace    local.zeta.gpt.oneclick.unified
-// @version      2.25.5.3
+// @version      2.25.5.4
 // @description  GitHub의 최신 AUTO_KILLER 통합 코어를 Android, iPhone, 데스크톱 브라우저에서 자동으로 불러옵니다.
 // @downloadURL  https://ztcgh01.github.io/autokiller/auto_killer.user.js
 // @updateURL    https://ztcgh01.github.io/autokiller/auto_killer.user.js
@@ -37,10 +37,30 @@
   // iPhone Userscripts처럼 설치 주소를 제공하지 않는 환경에서는 배포자가 지정한 주소를 사용합니다.
   const FALLBACK_CORE_URL = 'https://ztcgh01.github.io/autokiller/auto_killer.core.js';
   const CORE_URL = resolveCoreUrl();
-  const LOADER_VERSION = '2.25.5.3';
+  const LOADER_VERSION = '2.25.5.4';
   const pageWindow = typeof unsafeWindow === 'object' ? unsafeWindow : window;
-  pageWindow.__AUTO_KILLER_LOADER_VERSION__ = LOADER_VERSION;
-  pageWindow.__AUTO_KILLER_CORE_URL__ = CORE_URL;
+  const legacyLoaderInfo = typeof GM_info === 'object' && GM_info ? GM_info : null;
+  const modernLoaderInfo = typeof GM === 'object' && GM && typeof GM.info === 'object' ? GM.info : null;
+  const LOADER_SCRIPT_HANDLER = legacyLoaderInfo?.scriptHandler || modernLoaderInfo?.scriptHandler || 'unknown';
+
+  function publishLoaderMetadata() {
+    try {
+      pageWindow.__AUTO_KILLER_LOADER_VERSION__ = LOADER_VERSION;
+      pageWindow.__AUTO_KILLER_CORE_URL__ = CORE_URL;
+      pageWindow.__AUTO_KILLER_SCRIPT_HANDLER__ = LOADER_SCRIPT_HANDLER;
+    } catch (error) {}
+
+    try {
+      const dataset = document.documentElement?.dataset;
+      if (dataset) {
+        dataset.autoKillerLoaderVersion = LOADER_VERSION;
+        dataset.autoKillerCoreUrl = CORE_URL;
+        dataset.autoKillerScriptHandler = LOADER_SCRIPT_HANDLER;
+      }
+    } catch (error) {}
+  }
+
+  publishLoaderMetadata();
   const ANDROID_DEVICE = /Android/i.test(navigator.userAgent);
   const IOS_DEVICE = /iPad|iPhone|iPod/i.test(navigator.userAgent) ||
     (navigator.platform === 'MacIntel' && navigator.maxTouchPoints > 1);
@@ -584,6 +604,7 @@
   }
 
   async function boot() {
+    publishLoaderMetadata();
     await loaderDiagnosticInit();
     await loaderDiagnosticLog('LOADER_START', {
       loaderVersion: LOADER_VERSION,
@@ -591,6 +612,9 @@
       android: ANDROID_DEVICE,
       ios: IOS_DEVICE,
       coreSource: loaderSafeCoreSource(),
+      scriptHandler: loaderSanitize(LOADER_SCRIPT_HANDLER, 80),
+      metadataDomBridge: document.documentElement?.dataset?.autoKillerLoaderVersion === LOADER_VERSION,
+      metadataGlobalBridge: pageWindow.__AUTO_KILLER_LOADER_VERSION__ === LOADER_VERSION,
       userAgent: loaderSanitize(navigator.userAgent, 260)
     });
 
