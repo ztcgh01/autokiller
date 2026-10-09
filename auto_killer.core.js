@@ -1,14 +1,14 @@
 /* AUTO_KILLER remote core
- * Unified remote core: 2.25.5.0
+ * Unified remote core: 2.25.5.1
  * Temporary Chat: every job starts a fresh temporary chat.
  */
 (function () {
   'use strict';
   window.__AUTO_KILLER_REMOTE_CORE_LOADED__ = true;
-  window.__AUTO_KILLER_REMOTE_CORE_VERSION__ = '2.25.5.0';
+  window.__AUTO_KILLER_REMOTE_CORE_VERSION__ = '2.25.5.1';
 
     'use strict';
-    const SCRIPT_VERSION = '2.25.5.0';
+    const SCRIPT_VERSION = '2.25.5.1';
     const GPT_URL = 'https://chatgpt.com/g/g-6a1099bd986881918e0c582d35aafb1d-yeogbyeongkilreo';
     const PANEL_ID = 'zk-tm-unified-panel-v4';
     const JOB_KEY = 'zk_current_job_v2';
@@ -29,7 +29,9 @@
     const STORAGE_REQUEST_EVENT = '__AUTO_KILLER_GM_REQUEST_V1__';
     const STORAGE_RESPONSE_EVENT = '__AUTO_KILLER_GM_RESPONSE_V1__';
     const DIAGNOSTIC_KEY = 'zk_diagnostic_state_v1';
+    const DIAGNOSTIC_PROBE_KEY = 'zk_diagnostic_probe_v1';
     const DIAGNOSTIC_MAX_EVENTS = 220;
+    const DIAGNOSTIC_REPORT_VERSION = 2;
     const DIAGNOSTIC_ACTIVE_TTL_MS = 30 * 60 * 1000;
     const DIAGNOSTIC_RETENTION_MS = 24 * 60 * 60 * 1000;
     const GENERATION_DEFAULT_CHARACTER_COUNT = 20;
@@ -130,6 +132,7 @@
     let diagnosticState = null;
     let diagnosticWriteQueue = Promise.resolve();
     let diagnosticErrorHooksInstalled = false;
+    let diagnosticLifecycleHooksInstalled = false;
     let diagnosticLastCheckpoint = '';
 
     function diagnosticPageKind() {
@@ -236,6 +239,95 @@
       } catch (error) { return -1; }
     }
 
+    function diagnosticElementFingerprint(element, ancestorLimit = 4) {
+      if (!element || element.nodeType !== Node.ELEMENT_NODE) return null;
+
+      const pack = current => {
+        const classes = [];
+        try {
+          [...current.classList].slice(0, 8).forEach(value => classes.push(diagnosticSanitizeString(value, 80)));
+        } catch (error) {}
+
+        const attrs = {};
+        ['id','role','data-testid','data-turn','data-message-author-role','contenteditable','type','name','aria-label'].forEach(name => {
+          try {
+            const value = current.getAttribute?.(name);
+            if (value != null && value !== '') attrs[name] = diagnosticSanitizeString(value, 100);
+          } catch (error) {}
+        });
+
+        return {
+          tag: String(current.tagName || '').toLowerCase(),
+          attrs,
+          classes
+        };
+      };
+
+      const chain = [];
+      let current = element;
+      for (let index = 0; current && current.nodeType === Node.ELEMENT_NODE && index < ancestorLimit; index += 1) {
+        chain.push(pack(current));
+        if (current === document.body || current === document.documentElement) break;
+        current = current.parentElement;
+      }
+      return chain;
+    }
+
+    function diagnosticCollectFingerprints(selector, limit = 8) {
+      try {
+        const items = [...document.querySelectorAll(selector)];
+        return items.slice(Math.max(0, items.length - limit)).map(element => diagnosticElementFingerprint(element));
+      } catch (error) {
+        return [];
+      }
+    }
+
+    function diagnosticStructuralSnapshot() {
+      if (!diagnosticPageKind().startsWith('chatgpt')) return null;
+
+      let prompt = null;
+      let submit = null;
+      let assistant = null;
+
+      try { if (typeof findGptPrompt === 'function') prompt = findGptPrompt(); } catch (error) {}
+      try { if (typeof findGptSubmitButton === 'function') submit = findGptSubmitButton(prompt); } catch (error) {}
+      try {
+        if (typeof assistantTurns === 'function') {
+          const turns = assistantTurns();
+          assistant = turns[turns.length - 1] || null;
+        }
+      } catch (error) {}
+
+      const genericSelectors = [
+        'main article',
+        'main section',
+        'main [data-testid^="conversation-turn-"]',
+        'main [data-message-author-role]',
+        'main [role="article"]'
+      ];
+
+      const generic = [];
+      const seen = new Set();
+      genericSelectors.forEach(selector => {
+        try {
+          [...document.querySelectorAll(selector)].slice(-4).forEach(element => {
+            if (seen.has(element)) return;
+            seen.add(element);
+            generic.push(diagnosticElementFingerprint(element));
+          });
+        } catch (error) {}
+      });
+
+      return {
+        main: diagnosticElementFingerprint(document.querySelector('main')),
+        prompt: diagnosticElementFingerprint(prompt),
+        submit: diagnosticElementFingerprint(submit),
+        latestAssistant: diagnosticElementFingerprint(assistant),
+        recentGeneric: generic.slice(-12),
+        recentActionButtons: diagnosticCollectFingerprints('main button[data-testid],main button[aria-label]', 16)
+      };
+    }
+
     function diagnosticDomSnapshot() {
       const pageKind = diagnosticPageKind();
       if (pageKind.startsWith('chatgpt')) {
@@ -292,7 +384,8 @@
             submitButtons: diagnosticSelectorCount('button[type="submit"]')
           },
           forms: diagnosticSelectorCount('form'),
-          writingBlocks: diagnosticSelectorCount('[data-writing-block="true"]')
+          writingBlocks: diagnosticSelectorCount('[data-writing-block="true"]'),
+          structure: diagnosticStructuralSnapshot()
         };
       }
 
@@ -337,6 +430,28 @@
       };
     }
 
+    function diagnosticEventId() {
+      return Date.now().toString(36) + '-' + Math.random().toString(36).slice(2, 10);
+    }
+
+    function diagnosticMergeEvents(...lists) {
+      const merged = [];
+      const seen = new Set();
+
+      lists.flat().forEach(event => {
+        if (!event || typeof event !== 'object') return;
+        let fallback = '';
+        try { fallback = JSON.stringify(event.detail || {}); } catch (error) {}
+        const key = event.id || [event.at, event.page, event.stage, fallback].join('|');
+        if (seen.has(key)) return;
+        seen.add(key);
+        merged.push(event);
+      });
+
+      merged.sort((a, b) => Number(a.at || 0) - Number(b.at || 0));
+      return merged.slice(-DIAGNOSTIC_MAX_EVENTS);
+    }
+
     function diagnosticEnabled() {
       return diagnosticState?.enabled === true && (!diagnosticState.expiresAt || Date.now() < diagnosticState.expiresAt);
     }
@@ -345,14 +460,30 @@
       if (!diagnosticState) return;
       diagnosticState.updatedAt = Date.now();
       const snapshot = diagnosticNormalizeState(diagnosticState);
-      diagnosticWriteQueue = diagnosticWriteQueue.catch(() => {}).then(() => sharedStorage.set(DIAGNOSTIC_KEY, snapshot))
-        .catch(error => console.warn('[AUTO_KILLER Diagnostic] 저장 실패', error));
+
+      diagnosticWriteQueue = diagnosticWriteQueue.catch(() => {}).then(async () => {
+        try {
+          const latest = diagnosticNormalizeState(await sharedStorage.get(DIAGNOSTIC_KEY, null));
+          if (latest && latest.sessionId && latest.sessionId === snapshot.sessionId) {
+            snapshot.events = diagnosticMergeEvents(latest.events || [], snapshot.events || []);
+            if (!snapshot.lastFailure && latest.lastFailure) snapshot.lastFailure = latest.lastFailure;
+          }
+        } catch (error) {}
+
+        await sharedStorage.set(DIAGNOSTIC_KEY, snapshot);
+
+        if (diagnosticState && diagnosticState.sessionId === snapshot.sessionId) {
+          diagnosticState.events = snapshot.events;
+        }
+      }).catch(error => console.warn('[AUTO_KILLER Diagnostic] 저장 실패', error));
+
       await diagnosticWriteQueue;
     }
 
     function diagnosticLog(stage, detail = {}) {
       if (!diagnosticEnabled()) return Promise.resolve();
       const event = {
+        id: diagnosticEventId(),
         at: Date.now(),
         page: diagnosticPageKind(),
         stage: diagnosticSanitizeString(stage, 100),
@@ -380,6 +511,107 @@
       if (!diagnosticEnabled()) return;
       diagnosticState.lastFailure = diagnosticSanitizeString(stage, 100);
       void diagnosticLog(stage, { ...diagnosticSafeObject(detail), failure: true });
+    }
+
+    async function diagnosticFlush() {
+      try { await diagnosticWriteQueue; } catch (error) {}
+    }
+
+    async function diagnosticCritical(stage, detail = {}) {
+      if (!diagnosticEnabled()) return;
+      await diagnosticLog(stage, detail);
+      await diagnosticFlush();
+    }
+
+    async function diagnosticStorageRoundTrip(label = 'probe') {
+      if (!diagnosticEnabled()) return null;
+      const token = diagnosticEventId();
+
+      try {
+        await sharedStorage.set(DIAGNOSTIC_PROBE_KEY, { sessionId: diagnosticState.sessionId, token });
+        const stored = await sharedStorage.get(DIAGNOSTIC_PROBE_KEY, null);
+        const ok = stored?.sessionId === diagnosticState.sessionId && stored?.token === token;
+        await sharedStorage.delete(DIAGNOSTIC_PROBE_KEY);
+        await diagnosticLog('DIAGNOSTIC_STORAGE_ROUNDTRIP', { label, ok, storage: diagnosticStorageKind() });
+        return ok;
+      } catch (error) {
+        diagnosticFail('DIAGNOSTIC_STORAGE_ROUNDTRIP_FAILED', {
+          label,
+          errorName: error?.name || 'Error',
+          errorMessage: diagnosticSanitizeString(error?.message || String(error), 180)
+        });
+        return false;
+      }
+    }
+
+    async function diagnosticVerifyJobStorage(job, label = 'job') {
+      if (!diagnosticEnabled()) return null;
+
+      try {
+        const stored = await sharedStorage.get(JOB_KEY, null);
+        const result = {
+          label,
+          found: !!stored,
+          idMatch: stored?.id === job?.id,
+          typeMatch: stored?.type === job?.type,
+          promptLengthMatch: String(stored?.text || '').length === String(job?.text || '').length,
+          storedPromptLength: String(stored?.text || '').length
+        };
+        await diagnosticLog('JOB_STORAGE_READBACK', result);
+        return result.idMatch && result.typeMatch && result.promptLengthMatch;
+      } catch (error) {
+        diagnosticFail('JOB_STORAGE_READBACK_FAILED', {
+          label,
+          errorName: error?.name || 'Error',
+          errorMessage: diagnosticSanitizeString(error?.message || String(error), 180)
+        });
+        return false;
+      }
+    }
+
+    async function diagnosticVerifyResponseStorage(response, label = 'response') {
+      if (!diagnosticEnabled()) return null;
+
+      try {
+        const stored = await sharedStorage.get(RESPONSE_KEY, null);
+        const result = {
+          label,
+          found: !!stored,
+          idMatch: stored?.id === response?.id,
+          typeMatch: stored?.type === response?.type,
+          resultLengthMatch: String(stored?.text || '').length === String(response?.text || '').length,
+          storedResultLength: String(stored?.text || '').length
+        };
+        await diagnosticLog('RESPONSE_STORAGE_READBACK', result);
+        return result.idMatch && result.typeMatch && result.resultLengthMatch;
+      } catch (error) {
+        diagnosticFail('RESPONSE_STORAGE_READBACK_FAILED', {
+          label,
+          errorName: error?.name || 'Error',
+          errorMessage: diagnosticSanitizeString(error?.message || String(error), 180)
+        });
+        return false;
+      }
+    }
+
+    function installDiagnosticLifecycleHooks() {
+      if (diagnosticLifecycleHooksInstalled) return;
+      diagnosticLifecycleHooksInstalled = true;
+
+      window.addEventListener('focus', () => diagnosticCheckpoint('LIFECYCLE_FOCUS', { visibility: document.visibilityState }));
+      window.addEventListener('blur', () => diagnosticCheckpoint('LIFECYCLE_BLUR', { visibility: document.visibilityState }));
+      document.addEventListener('visibilitychange', () => {
+        diagnosticCheckpoint('LIFECYCLE_VISIBILITY', { visibility: document.visibilityState, hidden: document.hidden });
+      });
+      window.addEventListener('pageshow', event => {
+        diagnosticCheckpoint('LIFECYCLE_PAGESHOW', { persisted: !!event.persisted, visibility: document.visibilityState });
+      });
+      window.addEventListener('pagehide', event => {
+        diagnosticCheckpoint('LIFECYCLE_PAGEHIDE', { persisted: !!event.persisted, visibility: document.visibilityState });
+      });
+      window.addEventListener('beforeunload', () => {
+        diagnosticCheckpoint('LIFECYCLE_BEFOREUNLOAD', { visibility: document.visibilityState });
+      });
     }
 
     function installDiagnosticErrorHooks() {
@@ -433,7 +665,9 @@
 
       if (diagnosticEnabled()) {
         installDiagnosticErrorHooks();
+        installDiagnosticLifecycleHooks();
         await diagnosticLog('PAGE_INIT', { environment: diagnosticEnvironmentSnapshot(), dom: diagnosticDomSnapshot() });
+        await diagnosticStorageRoundTrip('page-init');
       }
     }
 
@@ -453,11 +687,13 @@
         events: []
       };
       installDiagnosticErrorHooks();
+      installDiagnosticLifecycleHooks();
       await diagnosticLog('DIAGNOSTIC_STARTED', {
         environment: diagnosticEnvironmentSnapshot(),
         dom: diagnosticDomSnapshot(),
         privacyMode: 'no-chat-text-no-prompt-text-no-gpt-response-text'
       });
+      await diagnosticStorageRoundTrip('diagnostic-start');
     }
 
     async function diagnosticStop() {
@@ -497,7 +733,7 @@
       const lines = [
         'AUTO_KILLER DIAGNOSTIC REPORT',
         '================================',
-        'Report version: 1',
+        'Report version: ' + DIAGNOSTIC_REPORT_VERSION,
         'Core version: ' + SCRIPT_VERSION,
         'Loader version: ' + diagnosticSanitizeString(window.__AUTO_KILLER_LOADER_VERSION__ || 'unknown', 40),
         'Status: ' + (state.enabled ? 'RECORDING' : 'STOPPED'),
@@ -698,13 +934,13 @@
         const clear = actionButton('진단 중지 + 기록 삭제');
 
         copy.onclick = async () => {
-          await diagnosticLog('REPORT_COPY_REQUESTED', { dom: diagnosticDomSnapshot() });
+          await diagnosticCritical('REPORT_COPY_REQUESTED', { dom: diagnosticDomSnapshot() });
           const ok = await diagnosticCopyReport();
           say(ok ? '진단 결과를 클립보드에 복사했어요.' : '진단 결과 복사에 실패했어요.', !ok);
           render();
         };
         save.onclick = async () => {
-          await diagnosticLog('REPORT_TXT_REQUESTED', { dom: diagnosticDomSnapshot() });
+          await diagnosticCritical('REPORT_TXT_REQUESTED', { dom: diagnosticDomSnapshot() });
           await diagnosticSaveReportTxt();
           say('진단 TXT 저장을 요청했어요.');
           render();
@@ -821,15 +1057,34 @@
     }
 
     function openTransferTab() {
-      if (BOOKMARKLET_MODE || localStorage.getItem(NEW_TAB_MODE_KEY) === 'false') return null;
-      if (ONECLICK_BRIDGE && !ONECLICK_IOS) return null;
-      try { return window.open('about:blank', '_blank'); }
-      catch (error) { return null; }
+      if (BOOKMARKLET_MODE || localStorage.getItem(NEW_TAB_MODE_KEY) === 'false') {
+        diagnosticCheckpoint('TRANSFER_TAB_SKIPPED', { reason: BOOKMARKLET_MODE ? 'bookmarklet-mode' : 'new-tab-off' });
+        return null;
+      }
+      if (ONECLICK_BRIDGE && !ONECLICK_IOS) {
+        diagnosticCheckpoint('TRANSFER_TAB_SKIPPED', { reason: 'non-ios-oneclick' });
+        return null;
+      }
+
+      try {
+        const tab = window.open('about:blank', '_blank');
+        diagnosticCheckpoint('TRANSFER_TAB_OPEN_RESULT', { success: !!tab && !tab.closed });
+        return tab;
+      } catch (error) {
+        diagnosticFail('TRANSFER_TAB_OPEN_FAILED', { errorName: error?.name || 'Error' });
+        return null;
+      }
     }
 
     function closeTransferTab(tab) {
-      try { if (tab && !tab.closed) tab.close(); }
-      catch (error) {}
+      try {
+        if (tab && !tab.closed) {
+          diagnosticCheckpoint('TRANSFER_TAB_CLOSE_REQUESTED', {});
+          tab.close();
+        }
+      } catch (error) {
+        diagnosticFail('TRANSFER_TAB_CLOSE_FAILED', { errorName: error?.name || 'Error' });
+      }
     }
 
     async function handoffJob(job, say, userscriptMessage, preparedTab = null) {
@@ -851,7 +1106,7 @@
         const payload = encodeTransfer(bookmarkletJob);
         say(`${userscriptMessage}${temporaryChat ? ' 임시채팅으로' : ''} GPT로 이동한 뒤 같은 북마클릿을 다시 눌러주세요.`);
         await sleep(300);
-        diagnosticCheckpoint('NAVIGATE_TO_GPT', { method: 'bookmarklet-location-replace', temporaryChat });
+        await diagnosticCritical('NAVIGATE_TO_GPT', { method: 'bookmarklet-location-replace', temporaryChat });
         location.replace(`${browserOnlyGptUrl(baseGptUrl)}#${BOOKMARKLET_JOB_HASH}=${payload}`);
         return;
       }
@@ -875,6 +1130,7 @@
         };
         // ChatGPT가 초기 로딩 중 URL hash를 지워도 작업을 잃지 않도록 GM 공용 저장소에도 보관한다.
         await sharedStorage.set(JOB_KEY, outgoingJob);
+        await diagnosticVerifyJobStorage(outgoingJob, 'zeta-oneclick');
         const payload = encodeTransfer(outgoingJob);
         const target = androidNeedsSafeGptEntry
           ? `${browserOnlyGptUrl('https://chatgpt.com/')}#akjob=${encodeURIComponent(payload)}`
@@ -882,18 +1138,19 @@
         say(temporaryChat ? `${userscriptMessage} 임시채팅으로 여는 중…` : userscriptMessage);
         if (ONECLICK_IOS) {
           if (iosPreparedTab) {
-            diagnosticCheckpoint('NAVIGATE_TO_GPT', { method: 'ios-prepared-tab', temporaryChat, targetVerified: targetGptVerified });
+            await diagnosticCritical('NAVIGATE_TO_GPT', { method: 'ios-prepared-tab', temporaryChat, targetVerified: targetGptVerified });
             iosPreparedTab.location.href = target;
             try { iosPreparedTab.focus(); } catch (error) {}
           } else {
             await sleep(120);
-            diagnosticCheckpoint('NAVIGATE_TO_GPT', { method: 'ios-location-replace', temporaryChat, targetVerified: targetGptVerified });
+            await diagnosticCritical('NAVIGATE_TO_GPT', { method: 'ios-location-replace', temporaryChat, targetVerified: targetGptVerified });
             location.replace(target);
           }
           return;
         }
-        diagnosticCheckpoint('NAVIGATE_TO_GPT', { method: 'oneclick-new-tab', temporaryChat, targetVerified: targetGptVerified });
+        await diagnosticCritical('NAVIGATE_TO_GPT', { method: 'oneclick-new-tab', temporaryChat, targetVerified: targetGptVerified });
         const transferTab = window.open(target, '_blank');
+        diagnosticCheckpoint('ONECLICK_TAB_OPEN_RESULT', { success: !!transferTab && !transferTab.closed });
         if (transferTab && !transferTab.closed) {
           try { transferTab.focus(); } catch (error) {}
         } else {
@@ -909,13 +1166,16 @@
         ? { ...job, newTab: true, temporaryChat, targetGptVerified }
         : { ...job, temporaryChat, targetGptVerified };
       await sharedStorage.set(JOB_KEY, outgoingJob);
+      await diagnosticVerifyJobStorage(outgoingJob, 'zeta-standard');
       const target = `${browserOnlyGptUrl(conversationUrl.split('#')[0])}#zkjob=${encodeURIComponent(job.id)}`;
       say(temporaryChat ? `${userscriptMessage} 임시채팅으로 여는 중…` : userscriptMessage);
       await waitForScriptableBridge();
       if (transferTab && !transferTab.closed) {
+        await diagnosticCritical('NAVIGATE_TO_GPT', { method: 'prepared-tab-standard', temporaryChat, targetVerified: targetGptVerified });
         transferTab.location.href = target;
         try { transferTab.focus(); } catch (error) {}
       } else {
+        await diagnosticCritical('NAVIGATE_TO_GPT', { method: 'location-replace-standard', temporaryChat, targetVerified: targetGptVerified });
         location.replace(target);
       }
     }
@@ -1266,7 +1526,7 @@
       header.append(dots, title, diagnosticButton, minimize, compactToggle, close);
       attachDiagnosticUi(shadow, root, mode, makeButton, say, diagnosticButton);
 
-      // 2.25 구형 로더 → 2.25.5.0 통합 로더 1회 재설치 안내.
+      // 2.25 구형 로더 → 2.25.5.1 통합 로더 1회 재설치 안내.
       // 새 로더는 core 실행 전에 __AUTO_KILLER_STORAGE_BRIDGE__를 true로 세팅하므로 안내가 자동으로 사라진다.
       const needsLoaderMigration = mode === 'zeta'
         && ONECLICK_BRIDGE
@@ -1274,10 +1534,10 @@
       const loaderMigrationNotice = document.createElement('div');
       loaderMigrationNotice.style.cssText = `display:${needsLoaderMigration ? 'flex' : 'none'};flex-direction:column;gap:6px;padding:8px 9px;border:1px solid #e6c96f;border-radius:9px;background:#fff8dc;color:#4d3f18;font:650 11px/1.4 system-ui,sans-serif`;
       const loaderMigrationText = document.createElement('div');
-      loaderMigrationText.innerHTML = '<b>⚠ AUTO_KILLER 중요 업데이트</b><br>새 자동 업데이트 방식 적용을 위해 <b>2.25.5.0을 한 번 다시 설치</b>해주세요.';
+      loaderMigrationText.innerHTML = '<b>⚠ AUTO_KILLER 중요 업데이트</b><br>새 자동 업데이트 방식 적용을 위해 <b>2.25.5.1을 한 번 다시 설치</b>해주세요.';
       const loaderMigrationButton = document.createElement('button');
       loaderMigrationButton.type = 'button';
-      loaderMigrationButton.textContent = '2.25.5.0 업데이트 설치';
+      loaderMigrationButton.textContent = '2.25.5.1 업데이트 설치';
       loaderMigrationButton.style.cssText = 'color-scheme:light;appearance:none;align-self:flex-start;border:1px solid #d5b952;border-radius:7px;padding:6px 9px;background:#fff;color:#4d3f18;font:800 11px/1.15 system-ui,sans-serif;cursor:pointer';
       loaderMigrationButton.onclick = () => {
         try {
@@ -3455,13 +3715,13 @@
 
           // iPhone/iPad의 같은 탭 OneClick은 GM 저장과 URL hash를 함께 사용한다.
           if (job.oneclick && !job.newTab) {
-            try { await sharedStorage.set(RESPONSE_KEY, response); diagnosticCheckpoint('RESPONSE_STORAGE_OK', { path: 'ios-oneclick', type: response.type, resultLength: String(finalText || '').length }); }
+            try { await sharedStorage.set(RESPONSE_KEY, response); diagnosticCheckpoint('RESPONSE_STORAGE_OK', { path: 'ios-oneclick', type: response.type, resultLength: String(finalText || '').length }); await diagnosticVerifyResponseStorage(response, 'ios-oneclick'); }
             catch (error) { diagnosticFail('RESPONSE_STORAGE_BACKUP_FAILED', { path: 'ios-oneclick', errorName: error?.name || 'Error', errorMessage: diagnosticSanitizeString(error?.message || String(error), 200) }); console.warn('[AUTO_KILLER Core] iOS GM 결과 백업 실패, hash 복귀 계속', error); }
             try { await sharedStorage.delete(JOB_KEY); } catch (error) {}
             say('제타로 전달 완료 · 제타로 돌아가는 중');
             state.textContent = '완료';
             gptBusy = false;
-            diagnosticCheckpoint('RETURN_REQUESTED', { method: 'ios-oneclick-location-replace', delayMs: 250 });
+            await diagnosticCritical('RETURN_REQUESTED', { method: 'ios-oneclick-location-replace', delayMs: 250 });
             setTimeout(() => {
               location.replace(`${response.room.split('#')[0]}#${BOOKMARKLET_RESULT_HASH}=${encodeTransfer(response)}`);
             }, 250);
@@ -3470,23 +3730,40 @@
 
           await sharedStorage.set(RESPONSE_KEY, response);
           diagnosticCheckpoint('RESPONSE_STORAGE_OK', { path: 'shared-storage', type: response.type, resultLength: String(finalText || '').length });
+          await diagnosticVerifyResponseStorage(response, 'shared-storage');
           await sharedStorage.delete(JOB_KEY);
           say('제타로 전달 완료 · 원래 제타 탭으로 돌아가는 중');
           state.textContent = '완료';
           gptBusy = false;
 
-          diagnosticCheckpoint('RETURN_REQUESTED', { method: job.newTab ? 'close-new-tab-or-fallback' : 'location-replace', delayMs: 650, openerPresent: !!window.opener });
-          setTimeout(() => {
+          await diagnosticCritical('RETURN_REQUESTED', { method: job.newTab ? 'close-new-tab-or-fallback' : 'location-replace', delayMs: 650, openerPresent: !!window.opener });
+          setTimeout(async () => {
             const fallbackUrl = job.oneclick
               ? `${response.room.split('#')[0]}#${BOOKMARKLET_RESULT_HASH}=${encodeTransfer(response)}`
               : `${response.room.split('#')[0]}#zkreturn=${encodeURIComponent(job.id)}`;
             if (job.newTab) {
               if (window.opener && !window.opener.closed) {
-                try { window.opener.focus(); } catch (error) {}
+                try {
+                  window.opener.focus();
+                  diagnosticCheckpoint('OPENER_FOCUS_REQUESTED', { success: true });
+                } catch (error) {
+                  diagnosticFail('OPENER_FOCUS_FAILED', { errorName: error?.name || 'Error' });
+                }
+              } else {
+                diagnosticCheckpoint('OPENER_NOT_AVAILABLE', {});
               }
+
+              await diagnosticCritical('TAB_CLOSE_ATTEMPT', { hiddenBeforeClose: document.hidden });
               window.close();
-              setTimeout(() => { if (!document.hidden) location.replace(fallbackUrl); }, 900);
+
+              setTimeout(async () => {
+                if (!document.hidden) {
+                  await diagnosticCritical('TAB_CLOSE_FALLBACK_NAVIGATION', { reason: 'tab-still-visible-after-close', delayMs: 900 });
+                  location.replace(fallbackUrl);
+                }
+              }, 900);
             } else {
+              await diagnosticCritical('RETURN_LOCATION_REPLACE', { method: 'same-tab' });
               location.replace(fallbackUrl);
             }
           }, 650);
@@ -3614,6 +3891,7 @@
       if (isChatGptRoot) {
         say('역병킬러 연결 중…');
         const next = browserOnlyGptUrl(GPT_URL);
+        await diagnosticCritical('GPT_SAFE_ENTRY_REDIRECT', { reason: 'android-root-to-target-gpt' });
         location.replace(next);
         return false;
       }
@@ -3687,7 +3965,10 @@
         submittedAt: Date.now()
       };
       try { sessionStorage.setItem(GPT_SESSION_KEY, JSON.stringify(submittedJob)); } catch (error) {}
-      if (!submittedJob.bookmarklet) await sharedStorage.set(JOB_KEY, submittedJob);
+      if (!submittedJob.bookmarklet) {
+        await sharedStorage.set(JOB_KEY, submittedJob);
+        await diagnosticVerifyJobStorage(submittedJob, 'gpt-submitted');
+      }
 
       say('GPT 프롬프트를 자동 입력하는 중…');
       const inserted = await insertPrompt(prompt, job.text);
