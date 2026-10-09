@@ -1,14 +1,14 @@
 /* AUTO_KILLER remote core
- * Unified remote core: 2.25.5.3
+ * Unified remote core: 2.25.5.4
  * Temporary Chat: every job starts a fresh temporary chat.
  */
 (function () {
   'use strict';
   window.__AUTO_KILLER_REMOTE_CORE_LOADED__ = true;
-  window.__AUTO_KILLER_REMOTE_CORE_VERSION__ = '2.25.5.3';
+  window.__AUTO_KILLER_REMOTE_CORE_VERSION__ = '2.25.5.4';
 
     'use strict';
-    const SCRIPT_VERSION = '2.25.5.3';
+    const SCRIPT_VERSION = '2.25.5.4';
     const GPT_URL = 'https://chatgpt.com/g/g-6a1099bd986881918e0c582d35aafb1d-yeogbyeongkilreo';
     const PANEL_ID = 'zk-tm-unified-panel-v4';
     const JOB_KEY = 'zk_current_job_v2';
@@ -168,35 +168,56 @@
       }
     }
 
+    function diagnosticSensitiveKey(key) {
+      const normalized = String(key || '').toLowerCase();
+      return new Set([
+        'text','rawtext','content','rawcontent','value',
+        'prompttext','responsetext','conversationtext','messagetext',
+        'sourcetext','requesttext','innertext','textcontent',
+        'innerhtml','outerhtml','html','transcript','payload','bodytext'
+      ]).has(normalized);
+    }
+
     function diagnosticSafeObject(value, depth = 0) {
-      if (depth > 4) return '[depth-limit]';
+      if (depth > 9) return '[depth-limit]';
       if (value == null || typeof value === 'boolean' || typeof value === 'number') return value;
-      if (typeof value === 'string') return diagnosticSanitizeString(value);
-      if (Array.isArray(value)) return value.slice(0, 40).map(item => diagnosticSafeObject(item, depth + 1));
+      if (typeof value === 'string') return diagnosticSanitizeString(value, 320);
+      if (Array.isArray(value)) return value.slice(0, 80).map(item => diagnosticSafeObject(item, depth + 1));
       if (typeof value === 'object') {
         const result = {};
-        Object.entries(value).slice(0, 60).forEach(([key, item]) => {
-          if (/text|content|prompt|response|conversation|message|source/i.test(key) &&
-              !/(length|count|present|found|status|type|mode|error|stage|coreSource)/i.test(key)) {
-            result[key] = '[not-collected]';
-          } else {
-            result[key] = diagnosticSafeObject(item, depth + 1);
-          }
+        Object.entries(value).slice(0, 120).forEach(([key, item]) => {
+          if (diagnosticSensitiveKey(key)) result[key] = '[not-collected]';
+          else result[key] = diagnosticSafeObject(item, depth + 1);
         });
         return result;
       }
-      return diagnosticSanitizeString(String(value));
+      return diagnosticSanitizeString(String(value), 320);
     }
 
     function diagnosticEnvironmentSnapshot() {
       const gmInfo = typeof GM_info === 'object' && GM_info ? GM_info : null;
       const modernInfo = typeof GM === 'object' && GM && typeof GM.info === 'object' ? GM.info : null;
-      const loaderVersion = window.__AUTO_KILLER_LOADER_VERSION__ || gmInfo?.script?.version || modernInfo?.script?.version || 'unknown';
-      const handler = gmInfo?.scriptHandler || modernInfo?.scriptHandler || '';
+      const htmlDataset = document.documentElement?.dataset || {};
+      const loaderVersion =
+        window.__AUTO_KILLER_LOADER_VERSION__ ||
+        htmlDataset.autoKillerLoaderVersion ||
+        gmInfo?.script?.version ||
+        modernInfo?.script?.version ||
+        'unknown';
+      const coreUrl =
+        window.__AUTO_KILLER_CORE_URL__ ||
+        htmlDataset.autoKillerCoreUrl ||
+        '';
+      const handler =
+        window.__AUTO_KILLER_SCRIPT_HANDLER__ ||
+        htmlDataset.autoKillerScriptHandler ||
+        gmInfo?.scriptHandler ||
+        modernInfo?.scriptHandler ||
+        '';
       return {
         coreVersion: SCRIPT_VERSION,
         loaderVersion: diagnosticSanitizeString(loaderVersion, 40),
-        coreSource: diagnosticSafeUrl(window.__AUTO_KILLER_CORE_URL__ || '', true),
+        coreSource: diagnosticSafeUrl(coreUrl, true),
         pageKind: diagnosticPageKind(),
         storage: diagnosticStorageKind(),
         bookmarkletMode: BOOKMARKLET_MODE,
@@ -239,7 +260,7 @@
       } catch (error) { return -1; }
     }
 
-    function diagnosticElementFingerprint(element, ancestorLimit = 4) {
+    function diagnosticElementFingerprint(element, ancestorLimit = 8) {
       if (!element || element.nodeType !== Node.ELEMENT_NODE) return null;
 
       const pack = current => {
@@ -249,7 +270,13 @@
         } catch (error) {}
 
         const attrs = {};
-        ['id','role','data-testid','data-turn','data-message-author-role','contenteditable','type','name','aria-label'].forEach(name => {
+        [
+          'id','role','data-testid','data-turn','data-turn-id','data-turn-id-container',
+          'data-message-author-role','data-message-id','data-state',
+          'data-writing-block','data-writing-block-fullscreen-editor-region',
+          'contenteditable','type','name','aria-label','aria-live','aria-busy','aria-disabled',
+          'data-slot','data-radix-collection-item','data-orientation'
+        ].forEach(name => {
           try {
             const value = current.getAttribute?.(name);
             if (value != null && value !== '') attrs[name] = diagnosticSanitizeString(value, 100);
@@ -323,8 +350,13 @@
         prompt: diagnosticElementFingerprint(prompt),
         submit: diagnosticElementFingerprint(submit),
         latestAssistant: diagnosticElementFingerprint(assistant),
-        recentGeneric: generic.slice(-12),
-        recentActionButtons: diagnosticCollectFingerprints('main button[data-testid],main button[aria-label]', 16)
+        recentGeneric: generic.slice(-16),
+        assistantRoleNodes: diagnosticCollectFingerprints('[data-message-author-role="assistant"]', 8),
+        assistantTurnNodes: diagnosticCollectFingerprints('[data-testid^="conversation-turn-"]', 8),
+        recentArticles: diagnosticCollectFingerprints('main article,main [role="article"]', 8),
+        recentContenteditables: diagnosticCollectFingerprints('main [contenteditable]', 8),
+        writingBlockNodes: diagnosticCollectFingerprints('[data-writing-block="true"]', 8),
+        recentActionButtons: diagnosticCollectFingerprints('main button[data-testid],main button[aria-label]', 20)
       };
     }
 
@@ -614,18 +646,28 @@
       });
     }
 
+    function diagnosticIsBenignBrowserError(message) {
+      return /ResizeObserver loop (?:completed with undelivered notifications|limit exceeded)/i.test(String(message || ''));
+    }
+
     function installDiagnosticErrorHooks() {
       if (diagnosticErrorHooksInstalled) return;
       diagnosticErrorHooksInstalled = true;
       window.addEventListener('error', event => {
         if (!diagnosticEnabled()) return;
-        diagnosticFail('JS_ERROR', {
+        const rawMessage = event.message || event.error?.message || '';
+        const detail = {
           errorName: event.error?.name || 'Error',
-          errorMessage: diagnosticSanitizeString(event.message || event.error?.message || '', 240),
+          errorMessage: diagnosticSanitizeString(rawMessage, 240),
           file: diagnosticSafeUrl(event.filename || '', true),
           line: Number(event.lineno || 0),
           column: Number(event.colno || 0)
-        });
+        };
+        if (diagnosticIsBenignBrowserError(rawMessage)) {
+          void diagnosticLog('BROWSER_WARNING', { ...detail, benign: true });
+          return;
+        }
+        diagnosticFail('JS_ERROR', detail);
       });
       window.addEventListener('unhandledrejection', event => {
         if (!diagnosticEnabled()) return;
@@ -1583,7 +1625,7 @@
       header.append(dots, title, minimize, compactToggle, close);
       attachDiagnosticUi(shadow, root, mode, makeButton, say, diagnosticButton);
 
-      // 2.25 구형 로더 → 2.25.5.3 통합 로더 1회 재설치 안내.
+      // 2.25 구형 로더 → 2.25.5.4 통합 로더 1회 재설치 안내.
       // 새 로더는 core 실행 전에 __AUTO_KILLER_STORAGE_BRIDGE__를 true로 세팅하므로 안내가 자동으로 사라진다.
       const needsLoaderMigration = mode === 'zeta'
         && ONECLICK_BRIDGE
@@ -1591,10 +1633,10 @@
       const loaderMigrationNotice = document.createElement('div');
       loaderMigrationNotice.style.cssText = `display:${needsLoaderMigration ? 'flex' : 'none'};flex-direction:column;gap:6px;padding:8px 9px;border:1px solid #e6c96f;border-radius:9px;background:#fff8dc;color:#4d3f18;font:650 11px/1.4 system-ui,sans-serif`;
       const loaderMigrationText = document.createElement('div');
-      loaderMigrationText.innerHTML = '<b>⚠ AUTO_KILLER 중요 업데이트</b><br>새 자동 업데이트 방식 적용을 위해 <b>2.25.5.3을 한 번 다시 설치</b>해주세요.';
+      loaderMigrationText.innerHTML = '<b>⚠ AUTO_KILLER 중요 업데이트</b><br>새 자동 업데이트 방식 적용을 위해 <b>2.25.5.4을 한 번 다시 설치</b>해주세요.';
       const loaderMigrationButton = document.createElement('button');
       loaderMigrationButton.type = 'button';
-      loaderMigrationButton.textContent = '2.25.5.3 업데이트 설치';
+      loaderMigrationButton.textContent = '2.25.5.4 업데이트 설치';
       loaderMigrationButton.style.cssText = 'color-scheme:light;appearance:none;align-self:flex-start;border:1px solid #d5b952;border-radius:7px;padding:6px 9px;background:#fff;color:#4d3f18;font:800 11px/1.15 system-ui,sans-serif;cursor:pointer';
       loaderMigrationButton.onclick = () => {
         try {
