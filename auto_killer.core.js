@@ -1,14 +1,14 @@
 /* AUTO_KILLER remote core
- * Unified remote core: 2.25.4.5
+ * Unified remote core: 2.25.4.6
  * Temporary Chat: every job starts a fresh temporary chat.
  */
 (function () {
   'use strict';
   window.__AUTO_KILLER_REMOTE_CORE_LOADED__ = true;
-  window.__AUTO_KILLER_REMOTE_CORE_VERSION__ = '2.25.4.5';
+  window.__AUTO_KILLER_REMOTE_CORE_VERSION__ = '2.25.4.6';
 
     'use strict';
-    const SCRIPT_VERSION = '2.25.4.5';
+    const SCRIPT_VERSION = '2.25.4.6';
     const GPT_URL = 'https://chatgpt.com/g/g-6a1099bd986881918e0c582d35aafb1d-yeogbyeongkilreo';
     const PANEL_ID = 'zk-tm-unified-panel-v4';
     const JOB_KEY = 'zk_current_job_v2';
@@ -633,7 +633,7 @@
       const close = makeButton('×', '#f3f4f6', '#4b5563'); close.style.cssText += 'padding:1px 5px;border-radius:6px;font-size:11px'; close.onclick = () => host.remove();
       header.append(dots, title, minimize, compactToggle, close);
 
-      // 2.25 구형 로더 → 2.25.4.5 통합 로더 1회 재설치 안내.
+      // 2.25 구형 로더 → 2.25.4.6 통합 로더 1회 재설치 안내.
       // 새 로더는 core 실행 전에 __AUTO_KILLER_STORAGE_BRIDGE__를 true로 세팅하므로 안내가 자동으로 사라진다.
       const needsLoaderMigration = mode === 'zeta'
         && ONECLICK_BRIDGE
@@ -641,10 +641,10 @@
       const loaderMigrationNotice = document.createElement('div');
       loaderMigrationNotice.style.cssText = `display:${needsLoaderMigration ? 'flex' : 'none'};flex-direction:column;gap:6px;padding:8px 9px;border:1px solid #e6c96f;border-radius:9px;background:#fff8dc;color:#4d3f18;font:650 11px/1.4 system-ui,sans-serif`;
       const loaderMigrationText = document.createElement('div');
-      loaderMigrationText.innerHTML = '<b>⚠ AUTO_KILLER 중요 업데이트</b><br>새 자동 업데이트 방식 적용을 위해 <b>2.25.4.5을 한 번 다시 설치</b>해주세요.';
+      loaderMigrationText.innerHTML = '<b>⚠ AUTO_KILLER 중요 업데이트</b><br>새 자동 업데이트 방식 적용을 위해 <b>2.25.4.6을 한 번 다시 설치</b>해주세요.';
       const loaderMigrationButton = document.createElement('button');
       loaderMigrationButton.type = 'button';
-      loaderMigrationButton.textContent = '2.25.4.5 업데이트 설치';
+      loaderMigrationButton.textContent = '2.25.4.6 업데이트 설치';
       loaderMigrationButton.style.cssText = 'color-scheme:light;appearance:none;align-self:flex-start;border:1px solid #d5b952;border-radius:7px;padding:6px 9px;background:#fff;color:#4d3f18;font:800 11px/1.15 system-ui,sans-serif;cursor:pointer';
       loaderMigrationButton.onclick = () => {
         try {
@@ -2509,6 +2509,143 @@
       return element.innerText || element.textContent || '';
     }
 
+
+    function isVisibleGptElement(element) {
+      if (!element?.isConnected) return false;
+      if (element.disabled || element.getAttribute?.('aria-disabled') === 'true') return false;
+      if (element.getAttribute?.('contenteditable') === 'false') return false;
+      try {
+        const style = getComputedStyle(element);
+        if (style.display === 'none' || style.visibility === 'hidden' || style.visibility === 'collapse') return false;
+        if (Number.parseFloat(style.opacity || '1') === 0) return false;
+      } catch (error) {}
+      try {
+        const rects = element.getClientRects?.();
+        if (rects && rects.length === 0) return false;
+        const rect = element.getBoundingClientRect?.();
+        if (rect && rect.width < 2 && rect.height < 2) return false;
+      } catch (error) {}
+      return true;
+    }
+
+    function gptComposerElementScore(element) {
+      if (!element || !isVisibleGptElement(element)) return -Infinity;
+      if (element.closest?.('[data-writing-block="true"], [data-message-author-role], [data-turn]')) return -Infinity;
+
+      let score = 0;
+      if (element.id === 'prompt-textarea') score += 120;
+      const testId = element.getAttribute?.('data-testid') || '';
+      if (testId === 'prompt-textarea') score += 115;
+      if (/composer.*(?:input|text)|(?:input|text).*composer/i.test(testId)) score += 100;
+      if (element.matches?.('.ProseMirror[contenteditable="true"]')) score += 90;
+      if (element.matches?.('[contenteditable="true"][role="textbox"]')) score += 85;
+      if (element.matches?.('textarea[name="prompt-textarea"]')) score += 80;
+      if (element.matches?.('textarea')) score += 35;
+      if (element.closest?.('form')) score += 20;
+
+      try {
+        const rect = element.getBoundingClientRect();
+        if (rect.top >= innerHeight * 0.35) score += 10;
+      } catch (error) {}
+      return score;
+    }
+
+    function findGptPrompt() {
+      const selectors = [
+        '#prompt-textarea',
+        '#prompt-textarea[contenteditable="true"]',
+        'div#prompt-textarea.ProseMirror',
+        '[data-testid="prompt-textarea"]',
+        '[data-testid="prompt-textarea"][contenteditable="true"]',
+        '[data-testid="composer-input"][contenteditable="true"]',
+        '[data-testid="composer-text-input"][contenteditable="true"]',
+        '.ProseMirror[contenteditable="true"][role="textbox"]',
+        '[contenteditable="true"][role="textbox"]',
+        '[contenteditable="plaintext-only"][role="textbox"]',
+        'textarea[name="prompt-textarea"]'
+      ];
+
+      const candidates = [];
+      const seen = new Set();
+      selectors.forEach(selector => {
+        try {
+          document.querySelectorAll(selector).forEach(element => {
+            if (seen.has(element)) return;
+            seen.add(element);
+            candidates.push(element);
+          });
+        } catch (error) {}
+      });
+
+      candidates.sort((a, b) => gptComposerElementScore(b) - gptComposerElementScore(a));
+      const best = candidates.find(element => Number.isFinite(gptComposerElementScore(element)));
+      return best || null;
+    }
+
+    function gptPromptDiagnostics() {
+      const count = selector => { try { return document.querySelectorAll(selector).length; } catch (error) { return -1; } };
+      return {
+        href: location.href,
+        promptId: count('#prompt-textarea'),
+        proseMirror: count('.ProseMirror[contenteditable="true"]'),
+        roleTextbox: count('[contenteditable="true"][role="textbox"]'),
+        editable: count('[contenteditable="true"]'),
+        textarea: count('textarea'),
+        forms: count('form')
+      };
+    }
+
+    function findGptSubmitButton(prompt = null) {
+      const selectors = [
+        '#composer-submit-button',
+        'button[data-testid="send-button"]',
+        'button[data-testid="composer-submit-button"]',
+        'button[aria-label="Send prompt"]',
+        'button[aria-label="Send message"]',
+        'button[aria-label="Send"]',
+        'button[aria-label="보내기"]',
+        'button[aria-label="전송"]',
+        'button[type="submit"]'
+      ];
+
+      const scopes = [];
+      const form = prompt?.closest?.('form');
+      const composer = prompt?.closest?.('[data-testid="composer"], [data-testid="composer-root"], [data-type="unified-composer"]');
+      if (form) scopes.push(form);
+      if (composer && composer !== form) scopes.push(composer);
+      if (prompt?.parentElement) scopes.push(prompt.parentElement);
+      scopes.push(document);
+
+      const seen = new Set();
+      for (const scope of scopes) {
+        for (const selector of selectors) {
+          let candidates = [];
+          try { candidates = [...scope.querySelectorAll(selector)]; } catch (error) {}
+          for (const button of candidates) {
+            if (seen.has(button)) continue;
+            seen.add(button);
+            if (!isVisibleGptElement(button)) continue;
+            if (button.getAttribute?.('data-testid') === 'stop-button') continue;
+            if (button.closest?.('[data-writing-block="true"], [data-message-author-role], [data-turn]')) continue;
+            return button;
+          }
+        }
+      }
+
+      // 접근성 라벨이 달라진 경우에도 composer 범위 안에서만 제한적으로 찾는다.
+      const fallbackScope = form || composer;
+      if (fallbackScope) {
+        const buttons = [...fallbackScope.querySelectorAll('button')];
+        const fallback = buttons.find(button => {
+          if (!isVisibleGptElement(button) || button.getAttribute?.('data-testid') === 'stop-button') return false;
+          const label = \`\${button.getAttribute?.('aria-label') || ''} \${button.title || ''}\`.trim();
+          return /send|submit|보내|전송/i.test(label);
+        });
+        if (fallback) return fallback;
+      }
+      return null;
+    }
+
     async function insertPrompt(prompt, text) {
       prompt.focus();
 
@@ -2765,8 +2902,14 @@
       }
 
       say('GPT 입력창을 기다리는 중…');
-      const prompt = await waitFor('#prompt-textarea');
-      if (!prompt) { say('GPT 입력창을 못 찾았어요.', true); state.textContent = '오류'; gptBusy = false; return; }
+      const prompt = await waitForResult(findGptPrompt, 30000, 200);
+      if (!prompt) {
+        console.warn('[AUTO_KILLER Core] GPT 입력창 탐색 실패', gptPromptDiagnostics());
+        say('GPT 입력창을 못 찾았어요. ChatGPT 화면을 새로고침한 뒤 다시 시도해주세요.', true);
+        state.textContent = '오류';
+        gptBusy = false;
+        return;
+      }
 
       const baselineTurns = assistantTurns();
       const baselineTurn = baselineTurns[baselineTurns.length - 1] || null;
@@ -2788,11 +2931,17 @@
         return;
       }
 
-      const submit = await waitFor('#composer-submit-button,button[data-testid="send-button"]', 10000);
-      if (!submit) { say('전송 버튼을 못 찾았어요.', true); state.textContent = '오류'; gptBusy = false; return; }
+      const submit = await waitForResult(() => findGptSubmitButton(prompt), 10000, 200);
+      if (!submit) {
+        console.warn('[AUTO_KILLER Core] GPT 전송 버튼 탐색 실패', gptPromptDiagnostics());
+        say('전송 버튼을 못 찾았어요. ChatGPT 화면을 새로고침한 뒤 다시 시도해주세요.', true);
+        state.textContent = '오류';
+        gptBusy = false;
+        return;
+      }
       let attempts = 0;
-      while (submit.disabled && attempts++ < 30) await sleep(200);
-      if (submit.disabled) { say('전송 버튼이 활성화되지 않았어요.', true); state.textContent = '오류'; gptBusy = false; return; }
+      while ((submit.disabled || submit.getAttribute?.('aria-disabled') === 'true') && attempts++ < 30) await sleep(200);
+      if (submit.disabled || submit.getAttribute?.('aria-disabled') === 'true') { say('전송 버튼이 활성화되지 않았어요.', true); state.textContent = '오류'; gptBusy = false; return; }
 
       say('자동 전송 · 답변을 기다리는 중…');
       submit.click();
