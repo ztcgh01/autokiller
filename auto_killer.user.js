@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         AUTO_KILLER
 // @namespace    local.zeta.gpt.oneclick.unified
-// @version      2.25.5.2
+// @version      2.25.5.3
 // @description  GitHub의 최신 AUTO_KILLER 통합 코어를 Android, iPhone, 데스크톱 브라우저에서 자동으로 불러옵니다.
 // @downloadURL  https://ztcgh01.github.io/autokiller/auto_killer.user.js
 // @updateURL    https://ztcgh01.github.io/autokiller/auto_killer.user.js
@@ -37,7 +37,7 @@
   // iPhone Userscripts처럼 설치 주소를 제공하지 않는 환경에서는 배포자가 지정한 주소를 사용합니다.
   const FALLBACK_CORE_URL = 'https://ztcgh01.github.io/autokiller/auto_killer.core.js';
   const CORE_URL = resolveCoreUrl();
-  const LOADER_VERSION = '2.25.5.2';
+  const LOADER_VERSION = '2.25.5.3';
   const pageWindow = typeof unsafeWindow === 'object' ? unsafeWindow : window;
   pageWindow.__AUTO_KILLER_LOADER_VERSION__ = LOADER_VERSION;
   pageWindow.__AUTO_KILLER_CORE_URL__ = CORE_URL;
@@ -199,10 +199,7 @@
     try { await loaderDiagnosticQueue; } catch (error) {}
   }
 
-  async function loaderDiagnosticReport() {
-    await loaderDiagnosticFlush();
-    const state = await gmGet(DIAGNOSTIC_KEY, null);
-
+  function loaderDiagnosticReportFromState(state = loaderDiagnosticState) {
     if (!state) {
       return 'AUTO_KILLER LOADER DIAGNOSTIC REPORT\nNo diagnostic session is stored.';
     }
@@ -239,6 +236,16 @@
     return lines.join('\n');
   }
 
+  async function loaderDiagnosticReport() {
+    await loaderDiagnosticFlush();
+    let state = loaderDiagnosticState;
+    try {
+      const stored = await gmGet(DIAGNOSTIC_KEY, null);
+      if (stored) state = stored;
+    } catch (error) {}
+    return loaderDiagnosticReportFromState(state);
+  }
+
   async function loaderCopyDiagnosticReport() {
     const report = await loaderDiagnosticReport();
 
@@ -262,19 +269,48 @@
     }
   }
 
-  async function loaderSaveDiagnosticTxt() {
-    const report = await loaderDiagnosticReport();
+  function loaderSaveDiagnosticTxt() {
+    const report = loaderDiagnosticReportFromState(loaderDiagnosticState);
     const stamp = new Date().toISOString().replace(/[:.]/g, '-');
+    const filename = 'AUTO_KILLER_LOADER_DIAG_' + stamp + '.txt';
+    const file = new File([report], filename, { type: 'text/plain;charset=utf-8' });
+    const iosLike = IOS_DEVICE;
+
+    if (iosLike && typeof navigator.share === 'function' && typeof navigator.canShare === 'function') {
+      try {
+        if (navigator.canShare({ files: [file] })) {
+          Promise.resolve(navigator.share({ files: [file], title: 'AUTO_KILLER 로더 진단 결과' }))
+            .catch(error => {
+              if (error?.name !== 'AbortError') console.warn('[AUTO_KILLER Loader Diagnostic] 공유 저장 실패', error);
+            });
+          return { ok: true, method: 'share-sheet' };
+        }
+      } catch (error) {}
+    }
+
     const blob = new Blob([report], { type: 'text/plain;charset=utf-8' });
     const url = URL.createObjectURL(blob);
 
-    const anchor = document.createElement('a');
-    anchor.href = url;
-    anchor.download = 'AUTO_KILLER_LOADER_DIAG_' + stamp + '.txt';
-    document.body.append(anchor);
-    anchor.click();
-    anchor.remove();
-    setTimeout(() => URL.revokeObjectURL(url), 3000);
+    try {
+      const anchor = document.createElement('a');
+      anchor.href = url;
+      anchor.download = filename;
+      anchor.style.display = 'none';
+      document.body.append(anchor);
+      anchor.click();
+      anchor.remove();
+      setTimeout(() => URL.revokeObjectURL(url), 15000);
+      return { ok: true, method: 'download' };
+    } catch (error) {
+      try {
+        const opened = window.open(url, '_blank');
+        setTimeout(() => URL.revokeObjectURL(url), 60000);
+        return { ok: !!opened, method: opened ? 'open-fallback' : 'failed' };
+      } catch (openError) {
+        setTimeout(() => URL.revokeObjectURL(url), 3000);
+        return { ok: false, method: 'failed' };
+      }
+    }
   }
 
   async function showLoaderDiagnosticFallback(error) {
@@ -319,10 +355,14 @@
       copy.textContent = ok ? '복사 완료' : '복사 실패';
     };
 
-    save.onclick = async () => {
+    save.onclick = () => {
       try {
-        await loaderSaveDiagnosticTxt();
-        save.textContent = '저장 요청 완료';
+        const saved = loaderSaveDiagnosticTxt();
+        save.textContent = saved.method === 'share-sheet'
+          ? '공유 창 열림'
+          : saved.ok
+            ? '저장 요청 완료'
+            : '저장 실패';
       } catch (saveError) {
         save.textContent = '저장 실패';
       }
