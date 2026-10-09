@@ -1,14 +1,14 @@
 /* AUTO_KILLER remote core
- * Unified remote core: 2.25.5.4
+ * Unified remote core: 2.25.5.5
  * Temporary Chat: every job starts a fresh temporary chat.
  */
 (function () {
   'use strict';
   window.__AUTO_KILLER_REMOTE_CORE_LOADED__ = true;
-  window.__AUTO_KILLER_REMOTE_CORE_VERSION__ = '2.25.5.4';
+  window.__AUTO_KILLER_REMOTE_CORE_VERSION__ = '2.25.5.5';
 
     'use strict';
-    const SCRIPT_VERSION = '2.25.5.4';
+    const SCRIPT_VERSION = '2.25.5.5';
     const GPT_URL = 'https://chatgpt.com/g/g-6a1099bd986881918e0c582d35aafb1d-yeogbyeongkilreo';
     const PANEL_ID = 'zk-tm-unified-panel-v4';
     const JOB_KEY = 'zk_current_job_v2';
@@ -355,7 +355,8 @@
         assistantTurnNodes: diagnosticCollectFingerprints('[data-testid^="conversation-turn-"]', 8),
         recentArticles: diagnosticCollectFingerprints('main article,main [role="article"]', 8),
         recentContenteditables: diagnosticCollectFingerprints('main [contenteditable]', 8),
-        writingBlockNodes: diagnosticCollectFingerprints('[data-writing-block="true"]', 8),
+        writingBlockNodes: diagnosticCollectFingerprints('[data-writing-block="true"],[data-testid="chatgpt-writing-block"]', 8),
+        fallbackResponseRoots: diagnosticCollectFingerprints('.DilResponseRoot,[data-testid="chatgpt-writing-block"]', 8),
         recentActionButtons: diagnosticCollectFingerprints('main button[data-testid],main button[aria-label]', 20)
       };
     }
@@ -398,6 +399,16 @@
           assistant: {
             roleMessages: diagnosticSelectorCount('[data-message-author-role="assistant"]'),
             dataTurnAssistant: diagnosticSelectorCount('[data-testid^="conversation-turn-"][data-turn="assistant"]'),
+            chatgptWritingBlocks: diagnosticSelectorCount('[data-testid="chatgpt-writing-block"]'),
+            dilResponseRoots: diagnosticSelectorCount('.DilResponseRoot'),
+            responseActionButtons: (() => {
+              try {
+                return [...document.querySelectorAll('button[aria-label],button[title]')]
+                  .filter(isAssistantResponseActionButton).length;
+              } catch (error) {
+                return -1;
+              }
+            })(),
             detectedTurns: assistantCount,
             latestLength,
             latestTurnIdPresent
@@ -1625,7 +1636,7 @@
       header.append(dots, title, minimize, compactToggle, close);
       attachDiagnosticUi(shadow, root, mode, makeButton, say, diagnosticButton);
 
-      // 2.25 구형 로더 → 2.25.5.4 통합 로더 1회 재설치 안내.
+      // 2.25 구형 로더 → 2.25.5.5 통합 로더 1회 재설치 안내.
       // 새 로더는 core 실행 전에 __AUTO_KILLER_STORAGE_BRIDGE__를 true로 세팅하므로 안내가 자동으로 사라진다.
       const needsLoaderMigration = mode === 'zeta'
         && ONECLICK_BRIDGE
@@ -1633,10 +1644,10 @@
       const loaderMigrationNotice = document.createElement('div');
       loaderMigrationNotice.style.cssText = `display:${needsLoaderMigration ? 'flex' : 'none'};flex-direction:column;gap:6px;padding:8px 9px;border:1px solid #e6c96f;border-radius:9px;background:#fff8dc;color:#4d3f18;font:650 11px/1.4 system-ui,sans-serif`;
       const loaderMigrationText = document.createElement('div');
-      loaderMigrationText.innerHTML = '<b>⚠ AUTO_KILLER 중요 업데이트</b><br>새 자동 업데이트 방식 적용을 위해 <b>2.25.5.4을 한 번 다시 설치</b>해주세요.';
+      loaderMigrationText.innerHTML = '<b>⚠ AUTO_KILLER 중요 업데이트</b><br>새 자동 업데이트 방식 적용을 위해 <b>2.25.5.5을 한 번 다시 설치</b>해주세요.';
       const loaderMigrationButton = document.createElement('button');
       loaderMigrationButton.type = 'button';
-      loaderMigrationButton.textContent = '2.25.5.4 업데이트 설치';
+      loaderMigrationButton.textContent = '2.25.5.5 업데이트 설치';
       loaderMigrationButton.style.cssText = 'color-scheme:light;appearance:none;align-self:flex-start;border:1px solid #d5b952;border-radius:7px;padding:6px 9px;background:#fff;color:#4d3f18;font:800 11px/1.15 system-ui,sans-serif;cursor:pointer';
       loaderMigrationButton.onclick = () => {
         try {
@@ -3463,6 +3474,39 @@
     let gptBusy = false;
     let lastJobId = '';
 
+    function isAssistantResponseActionButton(button) {
+      if (!button) return false;
+      const label = String(button.getAttribute?.('aria-label') || button.title || '').trim();
+      return /^(?:복사|응답 평가|소리 내어 읽기|응답 다시 생성|추가 액션|Copy|Rate response|Read aloud|Regenerate|More actions)$/i.test(label);
+    }
+
+    function assistantFallbackRoot(seed) {
+      if (!seed) return null;
+      let current = seed;
+
+      for (let depth = 0; current && current.nodeType === Node.ELEMENT_NODE && depth < 16; depth += 1) {
+        if (current.matches?.('[data-testid^="conversation-turn-"], [data-turn-id], [data-turn-id-container], article, [data-virtualized-turn-content]')) {
+          return current;
+        }
+
+        let hasResponseAction = false;
+        try {
+          hasResponseAction = [...current.querySelectorAll('button[aria-label],button[title]')]
+            .some(isAssistantResponseActionButton);
+        } catch (error) {}
+
+        const hasResponseContent = !!current.querySelector?.(
+          '[data-testid="chatgpt-writing-block"], [data-writing-block="true"], .DilResponseRoot, .markdown, [class*="markdown"]'
+        );
+
+        if (hasResponseAction && hasResponseContent) return current;
+        if (current === document.body || current === document.documentElement || current.tagName === 'MAIN') break;
+        current = current.parentElement;
+      }
+
+      return null;
+    }
+
     function assistantTurns() {
       const turns = [];
       const seen = new Set();
@@ -3484,20 +3528,45 @@
       });
 
       document.querySelectorAll('[data-testid^="conversation-turn-"][data-turn="assistant"]').forEach(add);
-      return turns;
+
+      document.querySelectorAll('[data-testid="chatgpt-writing-block"], [data-writing-block="true"], .DilResponseRoot')
+        .forEach(seed => add(assistantFallbackRoot(seed)));
+
+      document.querySelectorAll('button[aria-label],button[title]').forEach(button => {
+        if (isAssistantResponseActionButton(button)) add(assistantFallbackRoot(button));
+      });
+
+      return turns.filter(Boolean);
     }
 
     function currentTurnId(turn) {
       if (!turn) return '';
-      return turn.getAttribute?.('data-turn-id') ||
+
+      const direct =
+        turn.getAttribute?.('data-turn-id') ||
         turn.getAttribute?.('data-turn-id-container') ||
-        turn.getAttribute?.('data-testid') || '';
+        turn.getAttribute?.('data-testid');
+      if (direct) return direct;
+
+      const siblingIndex = [...(turn.parentElement?.children || [])].indexOf(turn);
+      if (turn.querySelector?.('[data-testid="chatgpt-writing-block"], [data-writing-block="true"]')) {
+        return 'fallback-writing-block-' + Math.max(0, siblingIndex);
+      }
+
+      try {
+        const action = [...turn.querySelectorAll('button[aria-label],button[title]')].find(isAssistantResponseActionButton);
+        if (action) return 'fallback-response-' + Math.max(0, siblingIndex);
+      } catch (error) {}
+
+      return '';
     }
 
     function writingBlockRpText(message) {
       const editor = message?.querySelector(
         '[data-writing-block="true"] [data-writing-block-fullscreen-editor-region="true"], ' +
-        '[data-writing-block="true"] .ProseMirror'
+        '[data-writing-block="true"] .ProseMirror, ' +
+        '[data-testid="chatgpt-writing-block"] [data-writing-block-fullscreen-editor-region="true"], ' +
+        '[data-testid="chatgpt-writing-block"] .ProseMirror'
       );
       if (!editor) return '';
 
@@ -3524,18 +3593,30 @@
 
     function assistantText(turn, preserveRpFormatting = false) {
       if (!turn) return '';
+
       const message = turn.matches?.('[data-message-author-role="assistant"]')
         ? turn
-        : turn.querySelector?.('[data-message-author-role="assistant"]');
-      if (!message) return '';
+        : turn.querySelector?.('[data-message-author-role="assistant"]') || turn;
 
       if (preserveRpFormatting) {
         const writingBlockText = writingBlockRpText(message);
         if (writingBlockText) return writingBlockText;
       }
 
-      const content = message.querySelector('.markdown') || message.querySelector('[class*="markdown"]') || message;
-      return content?.innerText?.trim() || '';
+      const content =
+        message.querySelector?.('.markdown') ||
+        message.querySelector?.('[class*="markdown"]') ||
+        message.querySelector?.('[data-testid="chatgpt-writing-block"] .ProseMirror') ||
+        message.querySelector?.('[data-writing-block="true"] .ProseMirror') ||
+        message.querySelector?.('.DilResponseRoot');
+
+      if (content) return content.innerText?.trim() || content.textContent?.trim() || '';
+
+      if (message.matches?.('[data-message-author-role="assistant"]')) {
+        return message.innerText?.trim() || message.textContent?.trim() || '';
+      }
+
+      return '';
     }
 
     function dispatchInputCompat(element, text = '') {
@@ -3681,6 +3762,7 @@
         const buttons = [...fallbackScope.querySelectorAll('button')];
         const fallback = buttons.find(button => {
           if (!isVisibleGptElement(button) || button.getAttribute?.('data-testid') === 'stop-button') return false;
+          if (isAssistantResponseActionButton(button)) return false;
           const label = `${button.getAttribute?.('aria-label') || ''} ${button.title || ''}`.trim();
           return /send|submit|보내|전송/i.test(label);
         });
