@@ -1,14 +1,14 @@
 /* AUTO_KILLER remote core
- * Unified remote core: 2.25.5.2
+ * Unified remote core: 2.25.5.3
  * Temporary Chat: every job starts a fresh temporary chat.
  */
 (function () {
   'use strict';
   window.__AUTO_KILLER_REMOTE_CORE_LOADED__ = true;
-  window.__AUTO_KILLER_REMOTE_CORE_VERSION__ = '2.25.5.2';
+  window.__AUTO_KILLER_REMOTE_CORE_VERSION__ = '2.25.5.3';
 
     'use strict';
-    const SCRIPT_VERSION = '2.25.5.2';
+    const SCRIPT_VERSION = '2.25.5.3';
     const GPT_URL = 'https://chatgpt.com/g/g-6a1099bd986881918e0c582d35aafb1d-yeogbyeongkilreo';
     const PANEL_ID = 'zk-tm-unified-panel-v4';
     const JOB_KEY = 'zk_current_job_v2';
@@ -716,13 +716,7 @@
       try { return new Date(value).toISOString(); } catch (error) { return String(value); }
     }
 
-    async function diagnosticBuildReport() {
-      try { await diagnosticWriteQueue; } catch (error) {}
-      let state = diagnosticState;
-      try {
-        const stored = await sharedStorage.get(DIAGNOSTIC_KEY, null);
-        if (stored) state = diagnosticNormalizeState(stored);
-      } catch (error) {}
+    function diagnosticBuildReportFromState(state = diagnosticState) {
       if (!state) return 'AUTO_KILLER DIAGNOSTIC REPORT\nNo diagnostic session is stored.';
 
       const currentSnapshot = diagnosticSafeObject({
@@ -758,7 +752,7 @@
         'EVENT LOG'
       ];
 
-      state.events.forEach((event, index) => {
+      (Array.isArray(state.events) ? state.events : []).forEach((event, index) => {
         lines.push(
           '[' + String(index + 1).padStart(3, '0') + '] ' +
           diagnosticFormatTime(event.at) + ' | ' +
@@ -767,7 +761,18 @@
           JSON.stringify(event.detail || {})
         );
       });
+
       return lines.join('\n');
+    }
+
+    async function diagnosticBuildReport() {
+      try { await diagnosticWriteQueue; } catch (error) {}
+      let state = diagnosticState;
+      try {
+        const stored = await sharedStorage.get(DIAGNOSTIC_KEY, null);
+        if (stored) state = diagnosticNormalizeState(stored);
+      } catch (error) {}
+      return diagnosticBuildReportFromState(state);
     }
 
     async function diagnosticCopyReport() {
@@ -790,26 +795,59 @@
       }
     }
 
-    async function diagnosticSaveReportTxt() {
-      const report = await diagnosticBuildReport();
+    function diagnosticSaveReportTxt() {
+      const report = diagnosticBuildReportFromState(diagnosticState);
       const stamp = new Date().toISOString().replace(/[:.]/g, '-');
       const filename = 'AUTO_KILLER_DIAG_' + stamp + '.txt';
+      const file = new File([report], filename, { type: 'text/plain;charset=utf-8' });
+
+      const iosLike = ONECLICK_IOS ||
+        /iPad|iPhone|iPod/i.test(navigator.userAgent) ||
+        (navigator.platform === 'MacIntel' && navigator.maxTouchPoints > 1);
+
+      if (iosLike && typeof navigator.share === 'function' && typeof navigator.canShare === 'function') {
+        try {
+          if (navigator.canShare({ files: [file] })) {
+            const sharePromise = navigator.share({
+              files: [file],
+              title: 'AUTO_KILLER 진단 결과'
+            });
+            Promise.resolve(sharePromise).catch(error => {
+              if (error?.name !== 'AbortError') {
+                diagnosticFail('DIAGNOSTIC_TXT_SHARE_FAILED', {
+                  errorName: error?.name || 'Error',
+                  errorMessage: diagnosticSanitizeString(error?.message || String(error), 160)
+                });
+              }
+            });
+            return { ok: true, method: 'share-sheet' };
+          }
+        } catch (error) {}
+      }
+
       const blob = new Blob([report], { type: 'text/plain;charset=utf-8' });
       const url = URL.createObjectURL(blob);
+
       try {
         const anchor = document.createElement('a');
         anchor.href = url;
         anchor.download = filename;
         anchor.rel = 'noopener';
+        anchor.style.display = 'none';
         document.body.append(anchor);
         anchor.click();
         anchor.remove();
-        setTimeout(() => URL.revokeObjectURL(url), 3000);
-        return true;
+        setTimeout(() => URL.revokeObjectURL(url), 15000);
+        return { ok: true, method: 'download' };
       } catch (error) {
-        try { window.open(url, '_blank'); } catch (openError) {}
-        setTimeout(() => URL.revokeObjectURL(url), 10000);
-        return false;
+        try {
+          const opened = window.open(url, '_blank');
+          setTimeout(() => URL.revokeObjectURL(url), 60000);
+          return { ok: !!opened, method: opened ? 'open-fallback' : 'failed' };
+        } catch (openError) {
+          setTimeout(() => URL.revokeObjectURL(url), 3000);
+          return { ok: false, method: 'failed' };
+        }
       }
     }
 
@@ -912,7 +950,15 @@
               const ok = await diagnosticCopyReport();
               say(ok ? '진단 결과를 클립보드에 복사했어요.' : '진단 결과 복사에 실패했어요.', !ok);
             };
-            save.onclick = async () => { await diagnosticSaveReportTxt(); say('진단 TXT 저장을 요청했어요.'); };
+            save.onclick = () => {
+              const saved = diagnosticSaveReportTxt();
+              say(saved.method === 'share-sheet'
+                ? '공유 창을 열었어요. 파일에 저장을 선택하면 TXT로 저장됩니다.'
+                : saved.ok
+                  ? '진단 TXT 저장을 요청했어요.'
+                  : '진단 TXT 저장에 실패했어요. 대신 진단 결과 복사를 사용해주세요.',
+                !saved.ok);
+            };
             clear.onclick = async () => { await diagnosticClear(); say('진단 기록을 삭제했어요.'); render(); };
             body.append(previous, copy, save, clear);
           }
@@ -939,10 +985,18 @@
           say(ok ? '진단 결과를 클립보드에 복사했어요.' : '진단 결과 복사에 실패했어요.', !ok);
           render();
         };
-        save.onclick = async () => {
-          await diagnosticCritical('REPORT_TXT_REQUESTED', { dom: diagnosticDomSnapshot() });
-          await diagnosticSaveReportTxt();
-          say('진단 TXT 저장을 요청했어요.');
+        save.onclick = () => {
+          diagnosticCheckpoint('REPORT_TXT_REQUESTED', { dom: diagnosticDomSnapshot() });
+          const saved = diagnosticSaveReportTxt();
+          if (saved.method === 'share-sheet') {
+            say('공유 창을 열었어요. 파일에 저장을 선택하면 TXT로 저장됩니다.');
+          } else if (saved.method === 'download') {
+            say('진단 TXT 다운로드를 요청했어요.');
+          } else if (saved.method === 'open-fallback') {
+            say('TXT 내용을 새 탭으로 열었어요. 브라우저의 공유/저장 기능으로 파일에 저장해주세요.');
+          } else {
+            say('진단 TXT 저장에 실패했어요. 대신 진단 결과 복사를 사용해주세요.', true);
+          }
           render();
         };
         stop.onclick = async () => {
@@ -1529,7 +1583,7 @@
       header.append(dots, title, minimize, compactToggle, close);
       attachDiagnosticUi(shadow, root, mode, makeButton, say, diagnosticButton);
 
-      // 2.25 구형 로더 → 2.25.5.2 통합 로더 1회 재설치 안내.
+      // 2.25 구형 로더 → 2.25.5.3 통합 로더 1회 재설치 안내.
       // 새 로더는 core 실행 전에 __AUTO_KILLER_STORAGE_BRIDGE__를 true로 세팅하므로 안내가 자동으로 사라진다.
       const needsLoaderMigration = mode === 'zeta'
         && ONECLICK_BRIDGE
@@ -1537,10 +1591,10 @@
       const loaderMigrationNotice = document.createElement('div');
       loaderMigrationNotice.style.cssText = `display:${needsLoaderMigration ? 'flex' : 'none'};flex-direction:column;gap:6px;padding:8px 9px;border:1px solid #e6c96f;border-radius:9px;background:#fff8dc;color:#4d3f18;font:650 11px/1.4 system-ui,sans-serif`;
       const loaderMigrationText = document.createElement('div');
-      loaderMigrationText.innerHTML = '<b>⚠ AUTO_KILLER 중요 업데이트</b><br>새 자동 업데이트 방식 적용을 위해 <b>2.25.5.2을 한 번 다시 설치</b>해주세요.';
+      loaderMigrationText.innerHTML = '<b>⚠ AUTO_KILLER 중요 업데이트</b><br>새 자동 업데이트 방식 적용을 위해 <b>2.25.5.3을 한 번 다시 설치</b>해주세요.';
       const loaderMigrationButton = document.createElement('button');
       loaderMigrationButton.type = 'button';
-      loaderMigrationButton.textContent = '2.25.5.2 업데이트 설치';
+      loaderMigrationButton.textContent = '2.25.5.3 업데이트 설치';
       loaderMigrationButton.style.cssText = 'color-scheme:light;appearance:none;align-self:flex-start;border:1px solid #d5b952;border-radius:7px;padding:6px 9px;background:#fff;color:#4d3f18;font:800 11px/1.15 system-ui,sans-serif;cursor:pointer';
       loaderMigrationButton.onclick = () => {
         try {
