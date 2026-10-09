@@ -1,14 +1,14 @@
 /* AUTO_KILLER remote core
- * Unified remote core: 2.25.5.1
+ * Unified remote core: 2.25.5.2
  * Temporary Chat: every job starts a fresh temporary chat.
  */
 (function () {
   'use strict';
   window.__AUTO_KILLER_REMOTE_CORE_LOADED__ = true;
-  window.__AUTO_KILLER_REMOTE_CORE_VERSION__ = '2.25.5.1';
+  window.__AUTO_KILLER_REMOTE_CORE_VERSION__ = '2.25.5.2';
 
     'use strict';
-    const SCRIPT_VERSION = '2.25.5.1';
+    const SCRIPT_VERSION = '2.25.5.2';
     const GPT_URL = 'https://chatgpt.com/g/g-6a1099bd986881918e0c582d35aafb1d-yeogbyeongkilreo';
     const PANEL_ID = 'zk-tm-unified-panel-v4';
     const JOB_KEY = 'zk_current_job_v2';
@@ -1521,12 +1521,15 @@
       const compactToggle = makeButton('□', '#f3f4f6', '#4b5563'); compactToggle.title = '작은 플로팅 패널로 전환'; compactToggle.style.cssText += `padding:1px 5px;border-radius:6px;font-size:9px;display:${mode === 'zeta' ? 'inline-block' : 'none'}`;
       const diagnosticButton = makeButton('오류 제보', '#f7f7f8', '#59616d');
       diagnosticButton.title = '오류 진단 시작 / 결과 복사';
-      diagnosticButton.style.cssText += 'padding:2px 5px;border-radius:6px;font-size:9px';
+      diagnosticButton.style.cssText += 'align-self:flex-start;padding:6px 9px';
+      const diagnosticHelp = document.createElement('div');
+      diagnosticHelp.textContent = '문제가 있을 때만 진단을 켜세요. 동의 후부터 작동 단계와 환경 정보만 기록하며, 대화·프롬프트·GPT 답변 원문은 수집하지 않습니다.';
+      diagnosticHelp.style.cssText = 'margin-top:-3px;padding:0 2px;color:#8a9099;font:500 10px/1.4 system-ui,sans-serif;word-break:keep-all';
       const close = makeButton('×', '#f3f4f6', '#4b5563'); close.style.cssText += 'padding:1px 5px;border-radius:6px;font-size:11px'; close.onclick = () => host.remove();
-      header.append(dots, title, diagnosticButton, minimize, compactToggle, close);
+      header.append(dots, title, minimize, compactToggle, close);
       attachDiagnosticUi(shadow, root, mode, makeButton, say, diagnosticButton);
 
-      // 2.25 구형 로더 → 2.25.5.1 통합 로더 1회 재설치 안내.
+      // 2.25 구형 로더 → 2.25.5.2 통합 로더 1회 재설치 안내.
       // 새 로더는 core 실행 전에 __AUTO_KILLER_STORAGE_BRIDGE__를 true로 세팅하므로 안내가 자동으로 사라진다.
       const needsLoaderMigration = mode === 'zeta'
         && ONECLICK_BRIDGE
@@ -1534,10 +1537,10 @@
       const loaderMigrationNotice = document.createElement('div');
       loaderMigrationNotice.style.cssText = `display:${needsLoaderMigration ? 'flex' : 'none'};flex-direction:column;gap:6px;padding:8px 9px;border:1px solid #e6c96f;border-radius:9px;background:#fff8dc;color:#4d3f18;font:650 11px/1.4 system-ui,sans-serif`;
       const loaderMigrationText = document.createElement('div');
-      loaderMigrationText.innerHTML = '<b>⚠ AUTO_KILLER 중요 업데이트</b><br>새 자동 업데이트 방식 적용을 위해 <b>2.25.5.1을 한 번 다시 설치</b>해주세요.';
+      loaderMigrationText.innerHTML = '<b>⚠ AUTO_KILLER 중요 업데이트</b><br>새 자동 업데이트 방식 적용을 위해 <b>2.25.5.2을 한 번 다시 설치</b>해주세요.';
       const loaderMigrationButton = document.createElement('button');
       loaderMigrationButton.type = 'button';
-      loaderMigrationButton.textContent = '2.25.5.1 업데이트 설치';
+      loaderMigrationButton.textContent = '2.25.5.2 업데이트 설치';
       loaderMigrationButton.style.cssText = 'color-scheme:light;appearance:none;align-self:flex-start;border:1px solid #d5b952;border-radius:7px;padding:6px 9px;background:#fff;color:#4d3f18;font:800 11px/1.15 system-ui,sans-serif;cursor:pointer';
       loaderMigrationButton.onclick = () => {
         try {
@@ -2431,7 +2434,8 @@
           categoryLabel('검토 설정'), sectionLabel('기본 검토 프롬프트'), builtinList, sectionLabel('사용자 검토 프롬프트'), presetList, customOption.label, promptTitle, promptContent, saveQuestion,
           categoryLabel('생성 설정'), generationCountRow, generationPromptSettings.element,
           categoryLabel('요약 설정'), summaryLengthRow, summaryCountRow, summaryInstructionLabel, summaryInstructionInput, summaryExtraLabel, summaryCharacterBreakRow, summarySafetyRow, summaryDirectLabel, summaryDirectInput,
-          categoryLabel('기본 프롬프트 복구 / 초기화'), resetArea
+          categoryLabel('기본 프롬프트 복구 / 초기화'), resetArea,
+          categoryLabel('오류 진단'), diagnosticButton, diagnosticHelp
         );
         row.append(review, generate, summarize, openSettings, auto, compactExpand);
         compactExpand.onclick = () => setCompact(false);
