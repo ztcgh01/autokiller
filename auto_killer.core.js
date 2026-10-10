@@ -1,14 +1,14 @@
 /* AUTO_KILLER remote core
- * Unified remote core: 3.0.0-alpha.5
+ * Unified remote core: 3.0.0-alpha.6
  * Plugin migration test: plugin-first + legacy rollback; no embedded instruction fallback.
  */
 (function () {
   'use strict';
   window.__AUTO_KILLER_REMOTE_CORE_LOADED__ = true;
-  window.__AUTO_KILLER_REMOTE_CORE_VERSION__ = '3.0.0-alpha.5';
+  window.__AUTO_KILLER_REMOTE_CORE_VERSION__ = '3.0.0-alpha.6';
 
     'use strict';
-    const SCRIPT_VERSION = '3.0.0-alpha.5';
+    const SCRIPT_VERSION = '3.0.0-alpha.6';
     const LEGACY_GPT_URL = 'https://chatgpt.com/g/g-6a1099bd986881918e0c582d35aafb1d-yeogbyeongkilreo';
     const GPT_URL = LEGACY_GPT_URL;
     const CHATGPT_ROOT_URL = 'https://chatgpt.com/';
@@ -4270,7 +4270,8 @@
 
           let finalText = latestText;
           if (job.targetMode === CHAT_TARGET_PLUGIN) {
-            const rawVerificationText = assistantFullMessageText(latest);
+            const fullMessageText = assistantFullMessageText(latest);
+            const rawVerificationText = [fullMessageText, latestText].filter(Boolean).join('\n');
             if (!hasPluginVerificationMarker(rawVerificationText)) {
               finished = true;
               cleanup();
@@ -4280,11 +4281,9 @@
               gptBusy = false;
               return;
             }
-            if (job.type === 'summary') {
-              finalText = stripPluginVerificationMarker(rawVerificationText);
-            } else {
-              finalText = stripPluginVerificationMarker(finalText);
-            }
+            finalText = job.type === 'summary'
+              ? stripPluginVerificationMarker(latestText)
+              : stripPluginVerificationMarker(finalText);
             if (!finalText) {
               finished = true;
               cleanup();
