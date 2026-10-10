@@ -13,7 +13,7 @@ The private personal plugin has been created and migrated.
 - ID: `plugins_6aca3662eee4819184ade9b529406401`
 - name: `yeokbyeong-killer`
 - display name: `역병킬러`
-- migrated release: `0.2.1`
+- migrated release: `0.2.2`
 - skill-only
 - no API key
 - no MCP dependency
