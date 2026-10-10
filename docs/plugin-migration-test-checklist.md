@@ -1,5 +1,25 @@
 # AUTO_KILLER 3.0 Plugin Migration Test Checklist
 
+## Static preflight status — 2026-10-10
+
+Completed before browser runtime testing:
+
+- current plugin release: v0.4.1
+- installed plugin reference vs uploaded `현재지침.txt`: exact content PASS
+- GitHub plugin mirror vs uploaded source: exact content PASS
+- AUTO_KILLER embedded `LEGACY_RP_INSTRUCTIONS` vs plugin mirror: exact normalized content PASS
+- `auto_killer.core.js` JavaScript syntax: PASS
+- `auto_killer.plugin-test.user.js` JavaScript syntax: PASS
+- handshake challenge/expected tokens present and exact equality gate present
+- plugin job prompt occurs only after handshake stage
+- handshake failure switches to `plainChatFallback`
+- test loader points to `plugin-migration-3.0/auto_killer.core.js` and adds a cache-buster
+
+Runtime/browser results are still pending and must not be inferred from these static checks.
+
+Use `docs/plugin-rp-golden-smoke-tests.md` as the fixed RP behavior suite for Phase 1 and minimum AUTO_KILLER round-trip coverage.
+
+
 ## Before testing
 
 - Production `main` stays on 2.25.5.9.
