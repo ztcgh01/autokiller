@@ -1,14 +1,14 @@
 /* AUTO_KILLER remote core
- * Unified remote core: 3.0.0-alpha.12
+ * Unified remote core: 3.0.0-alpha.13
  * Plugin migration test: plugin-first + legacy rollback; no embedded instruction fallback.
  */
 (function () {
   'use strict';
   window.__AUTO_KILLER_REMOTE_CORE_LOADED__ = true;
-  window.__AUTO_KILLER_REMOTE_CORE_VERSION__ = '3.0.0-alpha.12';
+  window.__AUTO_KILLER_REMOTE_CORE_VERSION__ = '3.0.0-alpha.13';
 
     'use strict';
-    const SCRIPT_VERSION = '3.0.0-alpha.12';
+    const SCRIPT_VERSION = '3.0.0-alpha.13';
     const LEGACY_GPT_URL = 'https://chatgpt.com/g/g-6a1099bd986881918e0c582d35aafb1d-yeogbyeongkilreo';
     const GPT_URL = LEGACY_GPT_URL;
     const CHATGPT_ROOT_URL = 'https://chatgpt.com/';
@@ -1238,12 +1238,22 @@
       const targetMode = chatTargetMode();
       const temporaryChat = temporaryChatEnabled(targetMode);
       const operation = pluginOperationForJob(job);
-      const routedJob = {
-        ...job,
-        targetMode,
-        pluginProtocol: targetMode === CHAT_TARGET_PLUGIN ? PLUGIN_PROTOCOL : '',
-        operation
-      };
+      const routedJob = targetMode === CHAT_TARGET_PLUGIN
+        ? {
+            ...job,
+            text: '',
+            targetMode,
+            pluginProtocol: PLUGIN_PROTOCOL,
+            operation
+          }
+        : {
+            ...job,
+            pluginBody: undefined,
+            pluginOptions: undefined,
+            targetMode,
+            pluginProtocol: '',
+            operation
+          };
       diagnosticCheckpoint('JOB_HANDOFF_START', {
         type: job?.type || 'unknown',
         operation,
@@ -2605,21 +2615,49 @@
           catch (error) { summaryResultText.focus(); summaryResultText.select(); document.execCommand('copy'); say('요약본을 클립보드에 복사했어요.'); }
         };
 
-        generate.onclick = () => sendGenerationFromZeta(
-          generate,
-          say,
-          Math.max(1, Number.parseInt(generationCountInput.value, 10) || GENERATION_DEFAULT_CHARACTER_COUNT),
-          generationPromptSettings.getInstruction()
-        );
+        generate.onclick = async () => {
+          try {
+            say('생성 작업을 준비하는 중…');
+            await sendGenerationFromZeta(
+              generate,
+              say,
+              Math.max(1, Number.parseInt(generationCountInput.value, 10) || GENERATION_DEFAULT_CHARACTER_COUNT),
+              generationPromptSettings.getInstruction()
+            );
+          } catch (error) {
+            console.error('[AUTO_KILLER Core] 생성 시작 실패', error);
+            diagnosticFail('ZETA_GENERATION_START_FAILED', {
+              errorName: error?.name || 'Error',
+              errorMessage: diagnosticSanitizeString(error?.message || String(error), 240)
+            });
+            say('생성 작업 시작 중 오류가 발생했어요: ' + (error?.message || error), true);
+          } finally {
+            generate.disabled = false;
+          }
+        };
 
-        summarize.onclick = () => sendSummaryFromZeta(
-          summarize,
-          say,
-          Math.max(1, Number.parseInt(summaryCountInput.value, 10) || SUMMARY_DEFAULT_CHARACTER_COUNT),
-          Math.max(1, Number.parseInt(summaryLengthInput.value, 10) || SUMMARY_DEFAULT_MAX_LENGTH),
-          summaryInstructionInput.value.trim() || DEFAULT_SUMMARY_INSTRUCTION,
-          getSummaryExtraInstruction()
-        );
+        summarize.onclick = async () => {
+          try {
+            say('요약 작업을 준비하는 중…');
+            await sendSummaryFromZeta(
+              summarize,
+              say,
+              Math.max(1, Number.parseInt(summaryCountInput.value, 10) || SUMMARY_DEFAULT_CHARACTER_COUNT),
+              Math.max(1, Number.parseInt(summaryLengthInput.value, 10) || SUMMARY_DEFAULT_MAX_LENGTH),
+              summaryInstructionInput.value.trim() || DEFAULT_SUMMARY_INSTRUCTION,
+              getSummaryExtraInstruction()
+            );
+          } catch (error) {
+            console.error('[AUTO_KILLER Core] 요약 시작 실패', error);
+            diagnosticFail('ZETA_SUMMARY_START_FAILED', {
+              errorName: error?.name || 'Error',
+              errorMessage: diagnosticSanitizeString(error?.message || String(error), 240)
+            });
+            say('요약 작업 시작 중 오류가 발생했어요: ' + (error?.message || error), true);
+          } finally {
+            summarize.disabled = false;
+          }
+        };
 
         auto.onclick = () => {
           const enabled = localStorage.getItem('zk_autosave') !== 'true';
@@ -4073,7 +4111,9 @@
       const envelope = {
         protocol: PLUGIN_PROTOCOL,
         operation: pluginOperationForJob(job),
-        body: typeof job?.pluginBody === 'string' ? job.pluginBody : String(job?.text || ''),
+        body: typeof job?.pluginBody === 'string' && job.pluginBody.length
+          ? job.pluginBody
+          : String(job?.text || ''),
         options: job?.pluginOptions && typeof job.pluginOptions === 'object' ? job.pluginOptions : {}
       };
       return PLUGIN_PROTOCOL + '\n' + JSON.stringify(envelope);
