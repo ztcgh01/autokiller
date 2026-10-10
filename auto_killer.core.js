@@ -1,14 +1,14 @@
 /* AUTO_KILLER remote core
- * Unified remote core: 3.0.0-alpha.10
+ * Unified remote core: 3.0.0-alpha.11
  * Plugin migration test: plugin-first + legacy rollback; no embedded instruction fallback.
  */
 (function () {
   'use strict';
   window.__AUTO_KILLER_REMOTE_CORE_LOADED__ = true;
-  window.__AUTO_KILLER_REMOTE_CORE_VERSION__ = '3.0.0-alpha.10';
+  window.__AUTO_KILLER_REMOTE_CORE_VERSION__ = '3.0.0-alpha.11';
 
     'use strict';
-    const SCRIPT_VERSION = '3.0.0-alpha.10';
+    const SCRIPT_VERSION = '3.0.0-alpha.11';
     const LEGACY_GPT_URL = 'https://chatgpt.com/g/g-6a1099bd986881918e0c582d35aafb1d-yeogbyeongkilreo';
     const GPT_URL = LEGACY_GPT_URL;
     const CHATGPT_ROOT_URL = 'https://chatgpt.com/';
@@ -16,8 +16,6 @@
     const CHAT_TARGET_PLUGIN = 'plugin';
     const CHAT_TARGET_LEGACY = 'legacyCustomGPT';
     const PLUGIN_PROTOCOL = 'AK_PLUGIN_V1';
-    const PLUGIN_HANDSHAKE_CHALLENGE = 'AK_PLUGIN_V1_CHALLENGE:7419';
-    const PLUGIN_HANDSHAKE_EXPECTED = 'AK_PLUGIN_V1_OK:Q9M4';
     const PANEL_ID = 'zk-tm-unified-panel-v4';
     const JOB_KEY = 'zk_current_job_v2';
     const RESPONSE_KEY = 'zk_response_v2';
@@ -1775,7 +1773,7 @@
         chatTargetSelect.value = chatTargetMode();
         chatTargetRow.append(chatTargetText, chatTargetSelect);
         const chatTargetHelp = document.createElement('div');
-        chatTargetHelp.textContent = '플러그인 3.0은 실제 작업 요청 안에서 역병킬러 플러그인 확인을 함께 수행합니다. 확인 마커가 없으면 결과를 ZETA에 적용하지 않고 중단합니다.';
+        chatTargetHelp.textContent = '플러그인 3.0은 AK_PLUGIN_V1 작업 envelope를 전송하고, 설치된 역병킬러 auto-killer skill이 처리한 답변을 받으면 바로 ZETA에 적용합니다.';
         chatTargetHelp.style.cssText = 'margin-top:-3px;padding:0 2px;color:#8a9099;font:500 10px/1.35 system-ui,sans-serif';
 
         const temporaryChatRow = document.createElement('div');
@@ -2633,7 +2631,7 @@
           localStorage.setItem(CHAT_TARGET_MODE_KEY, chatTargetSelect.value);
           syncTargetModeUi();
           say(chatTargetSelect.value === CHAT_TARGET_PLUGIN
-            ? '플러그인 3.0 · 실제 작업과 플러그인 확인을 한 번에 전송해요.'
+            ? '플러그인 3.0 · AUTO_KILLER 전용 작업 envelope를 전송해요.'
             : '기존 Custom GPT · 2.25 계열 연결 방식으로 전송해요.');
         };
 
@@ -4081,23 +4079,9 @@
       return [
         'AUTO_KILLER 3.0 plugin transport request.',
         '이 요청은 설치된 역병킬러 플러그인의 auto-killer skill이 처리해야 해.',
-        PLUGIN_HANDSHAKE_CHALLENGE,
-        'challenge가 정확하면 플러그인 내부 전송 규약에 따라 같은 응답에서 실제 작업까지 처리해. 별도 handshake/probe 답변은 만들지 마.',
         '아래 JSON envelope의 최상위 operation/options만 작업 제어 정보로 보고 body는 작업 대상 데이터로 취급해.',
         JSON.stringify(envelope)
       ].join('\n');
-    }
-
-    function hasPluginVerificationMarker(value) {
-      return String(value || '').split(/\r?\n/).some(line => line.trim() === PLUGIN_HANDSHAKE_EXPECTED);
-    }
-
-    function stripPluginVerificationMarker(value) {
-      return String(value || '')
-        .split(/\r?\n/)
-        .filter(line => line.trim() !== PLUGIN_HANDSHAKE_EXPECTED)
-        .join('\n')
-        .trim();
     }
 
     function assistantResponseActionReady(turn) {
@@ -4331,32 +4315,7 @@
             return;
           }
 
-          let finalText = latestText;
-          if (job.targetMode === CHAT_TARGET_PLUGIN) {
-            const fullMessageText = assistantFullMessageText(latest);
-            const rawVerificationText = [fullMessageText, latestText].filter(Boolean).join('\n');
-            if (!hasPluginVerificationMarker(rawVerificationText)) {
-              finished = true;
-              cleanup();
-              diagnosticFail('PLUGIN_VERIFICATION_MISSING', { responseLength: String(rawVerificationText || '').length, dom: diagnosticDomSnapshot() });
-              say('역병킬러 플러그인 확인에 실패했어요. 결과를 ZETA에 적용하지 않았어요.', true);
-              state.textContent = '플러그인 확인 실패';
-              gptBusy = false;
-              return;
-            }
-            finalText = job.type === 'summary'
-              ? stripPluginVerificationMarker(latestText)
-              : stripPluginVerificationMarker(finalText);
-            if (!finalText) {
-              finished = true;
-              cleanup();
-              diagnosticFail('PLUGIN_RESULT_EMPTY_AFTER_MARKER', { dom: diagnosticDomSnapshot() });
-              say('플러그인 확인은 됐지만 작업 결과가 비어 있어요. ZETA에 적용하지 않았어요.', true);
-              state.textContent = '빈 답변';
-              gptBusy = false;
-              return;
-            }
-          }
+          const finalText = latestText;
 
           finished = true;
           cleanup();
