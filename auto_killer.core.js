@@ -1,14 +1,14 @@
 /* AUTO_KILLER remote core
- * Unified remote core: 3.0.0-alpha.15
- * Plugin migration test: plugin-first + legacy rollback; no embedded instruction fallback.
+ * Unified remote core: 3.0.0-rc.1
+ * Plugin-first release candidate with legacy Custom GPT rollback.
  */
 (function () {
   'use strict';
   window.__AUTO_KILLER_REMOTE_CORE_LOADED__ = true;
-  window.__AUTO_KILLER_REMOTE_CORE_VERSION__ = '3.0.0-alpha.15';
+  window.__AUTO_KILLER_REMOTE_CORE_VERSION__ = '3.0.0-rc.1';
 
     'use strict';
-    const SCRIPT_VERSION = '3.0.0-alpha.15';
+    const SCRIPT_VERSION = '3.0.0-rc.1';
     const LEGACY_GPT_URL = 'https://chatgpt.com/g/g-6a1099bd986881918e0c582d35aafb1d-yeogbyeongkilreo';
     const GPT_URL = LEGACY_GPT_URL;
     const CHATGPT_ROOT_URL = 'https://chatgpt.com/';
@@ -1729,29 +1729,6 @@
       header.append(dots, title, minimize, compactToggle, close);
       attachDiagnosticUi(shadow, root, mode, makeButton, say, diagnosticButton);
 
-      // 2.25 구형 로더 → 2.25.5.9 통합 로더 1회 재설치 안내.
-      // 새 로더는 core 실행 전에 __AUTO_KILLER_STORAGE_BRIDGE__를 true로 세팅하므로 안내가 자동으로 사라진다.
-      const needsLoaderMigration = mode === 'zeta'
-        && ONECLICK_BRIDGE
-        && window.__AUTO_KILLER_STORAGE_BRIDGE__ !== true;
-      const loaderMigrationNotice = document.createElement('div');
-      loaderMigrationNotice.style.cssText = `display:${needsLoaderMigration ? 'flex' : 'none'};flex-direction:column;gap:6px;padding:8px 9px;border:1px solid #e6c96f;border-radius:9px;background:#fff8dc;color:#4d3f18;font:650 11px/1.4 system-ui,sans-serif`;
-      const loaderMigrationText = document.createElement('div');
-      loaderMigrationText.innerHTML = '<b>⚠ AUTO_KILLER 중요 업데이트</b><br>새 자동 업데이트 방식 적용을 위해 <b>2.25.5.9을 한 번 다시 설치</b>해주세요.';
-      const loaderMigrationButton = document.createElement('button');
-      loaderMigrationButton.type = 'button';
-      loaderMigrationButton.textContent = '2.25.5.9 업데이트 설치';
-      loaderMigrationButton.style.cssText = 'color-scheme:light;appearance:none;align-self:flex-start;border:1px solid #d5b952;border-radius:7px;padding:6px 9px;background:#fff;color:#4d3f18;font:800 11px/1.15 system-ui,sans-serif;cursor:pointer';
-      loaderMigrationButton.onclick = () => {
-        try {
-          const opened = window.open('https://ztcgh01.github.io/autokiller/auto_killer.user.js', '_blank');
-          if (!opened) location.href = 'https://ztcgh01.github.io/autokiller/auto_killer.user.js';
-        } catch (error) {
-          location.href = 'https://ztcgh01.github.io/autokiller/auto_killer.user.js';
-        }
-      };
-      loaderMigrationNotice.append(loaderMigrationText, loaderMigrationButton);
-
       const normalOnlyControls = [];
       const compactOnlyControls = [];
       let compactExpand = null;
@@ -1789,7 +1766,7 @@
         const temporaryChatRow = document.createElement('div');
         temporaryChatRow.style.cssText = 'display:flex;align-items:center;gap:7px;padding:6px;border:1px solid #e5e7eb;border-radius:7px;background:#fff';
         const temporaryChatText = document.createElement('span');
-        temporaryChatText.textContent = '임시채팅으로 역병킬러 열기';
+        temporaryChatText.textContent = '임시채팅으로 열기';
         temporaryChatText.style.cssText = 'flex:1;color:#4b5563;font:650 11px/1.25 system-ui,sans-serif';
         const temporaryChatToggle = makeButton(localStorage.getItem(TEMPORARY_CHAT_KEY) === 'true' ? 'ON' : 'OFF', '#f7f7f8');
         temporaryChatToggle.style.cssText += 'min-width:44px;padding:5px 8px';
@@ -2711,7 +2688,7 @@
         row.append(state);
       }
 
-      root.append(header, loaderMigrationNotice, row, settings, status, compactHint, resizeHint, resizeEdge, resizeCorner, resizeGrip); shadow.append(isolationStyle, root); document.body.append(host);
+      root.append(header, row, settings, status, compactHint, resizeHint, resizeEdge, resizeCorner, resizeGrip); shadow.append(isolationStyle, root); document.body.append(host);
       if (mode === 'zeta') setTimeout(showCompactHintOnce, 650);
       const posKey = `zk_panel_pos_v4_${mode}`;
       const minKey = `zk_panel_min_v4_${mode}`;
