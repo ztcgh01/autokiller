@@ -18,6 +18,12 @@ Completed before browser runtime testing:
 
 Runtime/browser results are still pending and must not be inferred from these static checks.
 
+Runtime result recorded from a new ChatGPT conversation after v0.4.2 release:
+
+- plugin handshake runtime (new chat, v0.4.2): PASS
+- observed exact reply: `AK_PLUGIN_V1_OK:Q9M4`
+- direct RP behavior tests: pending
+
 Use `docs/plugin-rp-golden-smoke-tests.md` as the fixed RP behavior suite for Phase 1 and minimum AUTO_KILLER round-trip coverage.
 
 
