@@ -1771,10 +1771,16 @@
         chatTargetText.style.cssText = 'flex:1;color:#4b5563;font:650 11px/1.25 system-ui,sans-serif';
         const chatTargetSelect = document.createElement('select');
         chatTargetSelect.style.cssText = 'color-scheme:light;appearance:auto;max-width:150px;border:1px solid #d1d5db;border-radius:7px;padding:5px 6px;background:#fff;color:#374151;font:650 10px/1.2 system-ui,sans-serif';
-        [
-          [CHAT_TARGET_PLUGIN, '플러그인 3.0'],
-          [CHAT_TARGET_LEGACY, '기존 Custom GPT']
-        ].forEach(([value, label]) => {
+        const pluginModeExposed = localStorage.getItem(CHAT_TARGET_MODE_KEY) === CHAT_TARGET_PLUGIN;
+        const chatTargetOptions = pluginModeExposed
+          ? [
+              [CHAT_TARGET_PLUGIN, '플러그인 3.0'],
+              [CHAT_TARGET_LEGACY, '기존 Custom GPT']
+            ]
+          : [
+              [CHAT_TARGET_LEGACY, '기존 Custom GPT']
+            ];
+        chatTargetOptions.forEach(([value, label]) => {
           const option = document.createElement('option');
           option.value = value;
           option.textContent = label;
@@ -1783,8 +1789,14 @@
         chatTargetSelect.value = chatTargetMode();
         chatTargetRow.append(chatTargetText, chatTargetSelect);
         const chatTargetHelp = document.createElement('div');
-        chatTargetHelp.textContent = '플러그인 3.0은 AK_PLUGIN_V1 작업 envelope를 전송하고, 설치된 역병킬러 auto-killer skill이 처리한 답변을 받으면 바로 ZETA에 적용합니다.';
+        chatTargetHelp.textContent = pluginModeExposed
+          ? '플러그인 3.0은 AK_PLUGIN_V1 작업 envelope를 전송하고, 설치된 역병킬러 auto-killer skill이 처리한 답변을 받으면 바로 ZETA에 적용합니다.'
+          : '현재 공개 배포는 기존 Custom GPT 연결을 사용합니다.';
         chatTargetHelp.style.cssText = 'margin-top:-3px;padding:0 2px;color:#8a9099;font:500 10px/1.35 system-ui,sans-serif';
+        if (!pluginModeExposed) {
+          chatTargetRow.style.display = 'none';
+          chatTargetHelp.style.display = 'none';
+        }
 
         const temporaryChatRow = document.createElement('div');
         temporaryChatRow.style.cssText = 'display:flex;align-items:center;gap:7px;padding:6px;border:1px solid #e5e7eb;border-radius:7px;background:#fff';
