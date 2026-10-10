@@ -9,7 +9,7 @@
     "capabilities": []
   },
   "name": "yeokbyeong-killer",
-  "version": "0.4.4",
+  "version": "0.4.5",
   "description": "기존 역병킬러 Custom GPT의 최신 RP 지침 전체를 원문 그대로 이식하고, AUTO_KILLER 검토·생성·유저노트 요약 연동을 제공하는 플러그인입니다.",
   "author": {
     "name": "Joe Ssi",
