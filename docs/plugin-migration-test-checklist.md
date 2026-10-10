@@ -35,6 +35,12 @@ Runtime result recorded from a new ChatGPT conversation after v0.4.2 release:
   - InfoBox header/structure preservation: FAIL (header dropped; rendered as generic code block)
   - quote-line exact preservation: FAIL (`\\>` retained but extra space inserted)
   - quote trailing blank-line discipline: FAIL (excess blank lines)
+- v0.4.3 formatting retest: FAIL
+  - native Writing Block: PASS
+  - inner-thought preservation `('...')`: PASS
+  - InfoBox start-line preservation: FAIL (`InfoBox id="hxddss"` dropped again)
+  - quote-line exact preservation: FAIL (`\\>` kept but a space was inserted after it)
+  - excess blank lines: improved vs v0.4.2
 - remaining direct RP behavior tests: pending
 
 Use `docs/plugin-rp-golden-smoke-tests.md` as the fixed RP behavior suite for Phase 1 and minimum AUTO_KILLER round-trip coverage.
