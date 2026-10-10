@@ -1,14 +1,14 @@
 /* AUTO_KILLER remote core
- * Unified remote core: 3.0.0-alpha.6
+ * Unified remote core: 3.0.0-alpha.7
  * Plugin migration test: plugin-first + legacy rollback; no embedded instruction fallback.
  */
 (function () {
   'use strict';
   window.__AUTO_KILLER_REMOTE_CORE_LOADED__ = true;
-  window.__AUTO_KILLER_REMOTE_CORE_VERSION__ = '3.0.0-alpha.6';
+  window.__AUTO_KILLER_REMOTE_CORE_VERSION__ = '3.0.0-alpha.7';
 
     'use strict';
-    const SCRIPT_VERSION = '3.0.0-alpha.6';
+    const SCRIPT_VERSION = '3.0.0-alpha.7';
     const LEGACY_GPT_URL = 'https://chatgpt.com/g/g-6a1099bd986881918e0c582d35aafb1d-yeogbyeongkilreo';
     const GPT_URL = LEGACY_GPT_URL;
     const CHATGPT_ROOT_URL = 'https://chatgpt.com/';
@@ -3827,24 +3827,59 @@
       return true;
     }
 
+    function isEditableGptComposerElement(element) {
+      if (!element || !isVisibleGptElement(element)) return false;
+      if (element.closest?.('[data-writing-block="true"], [data-message-author-role], [data-turn]')) return false;
+      if (element.matches?.('textarea')) return !element.disabled && !element.readOnly;
+      if (element.matches?.('input[type="text"], input:not([type])')) return !element.disabled && !element.readOnly;
+      const editable = String(element.getAttribute?.('contenteditable') || '').toLowerCase();
+      return element.isContentEditable === true || editable === 'true' || editable === 'plaintext-only';
+    }
+
+    function resolveGptComposerEditable(element) {
+      if (!element) return null;
+      if (isEditableGptComposerElement(element)) return element;
+      const nestedSelectors = [
+        '[contenteditable="true"]',
+        '[contenteditable="plaintext-only"]',
+        '.ProseMirror[contenteditable="true"]',
+        '[data-lexical-editor="true"][contenteditable="true"]',
+        'textarea',
+        'input[type="text"]'
+      ];
+      for (const selector of nestedSelectors) {
+        try {
+          const nested = [...element.querySelectorAll(selector)].find(isEditableGptComposerElement);
+          if (nested) return nested;
+        } catch (error) {}
+      }
+      return null;
+    }
+
     function gptComposerElementScore(element) {
-      if (!element || !isVisibleGptElement(element)) return -Infinity;
-      if (element.closest?.('[data-writing-block="true"], [data-message-author-role], [data-turn]')) return -Infinity;
+      if (!isEditableGptComposerElement(element)) return -Infinity;
 
       let score = 0;
       if (element.id === 'prompt-textarea') score += 120;
+      if (element.closest?.('#prompt-textarea')) score += 110;
+
       const testId = element.getAttribute?.('data-testid') || '';
+      const testIdOwner = element.closest?.('[data-testid]')?.getAttribute?.('data-testid') || '';
       if (testId === 'prompt-textarea') score += 115;
+      if (testIdOwner === 'prompt-textarea') score += 105;
       if (/composer.*(?:input|text)|(?:input|text).*composer/i.test(testId)) score += 100;
+      if (/composer.*(?:input|text)|(?:input|text).*composer/i.test(testIdOwner)) score += 90;
       if (element.matches?.('.ProseMirror[contenteditable="true"]')) score += 90;
-      if (element.matches?.('[contenteditable="true"][role="textbox"]')) score += 85;
+      if (element.matches?.('[data-lexical-editor="true"][contenteditable="true"]')) score += 88;
+      if (element.matches?.('[contenteditable="true"][role="textbox"], [contenteditable="plaintext-only"][role="textbox"]')) score += 85;
       if (element.matches?.('textarea[name="prompt-textarea"]')) score += 80;
       if (element.matches?.('textarea')) score += 35;
-      if (element.closest?.('form')) score += 20;
+      if (element.closest?.('[data-type="unified-composer"], [data-testid="composer"], [data-testid="composer-root"], form')) score += 25;
 
       try {
         const rect = element.getBoundingClientRect();
         if (rect.top >= innerHeight * 0.35) score += 10;
+        if (rect.top >= innerHeight * 0.55) score += 8;
       } catch (error) {}
       return score;
     }
@@ -3852,24 +3887,32 @@
     function findGptPrompt() {
       const selectors = [
         '#prompt-textarea',
-        '#prompt-textarea[contenteditable="true"]',
-        'div#prompt-textarea.ProseMirror',
+        '#prompt-textarea [contenteditable="true"]',
+        '#prompt-textarea [contenteditable="plaintext-only"]',
         '[data-testid="prompt-textarea"]',
-        '[data-testid="prompt-textarea"][contenteditable="true"]',
-        '[data-testid="composer-input"][contenteditable="true"]',
-        '[data-testid="composer-text-input"][contenteditable="true"]',
-        '.ProseMirror[contenteditable="true"][role="textbox"]',
+        '[data-testid="prompt-textarea"] [contenteditable="true"]',
+        '[data-testid="prompt-textarea"] [contenteditable="plaintext-only"]',
+        '[data-testid="composer-input"]',
+        '[data-testid="composer-text-input"]',
+        '[data-testid*="composer"] [contenteditable="true"]',
+        '[data-testid*="composer"] [contenteditable="plaintext-only"]',
+        '[data-type="unified-composer"] [contenteditable="true"]',
+        '[data-type="unified-composer"] [contenteditable="plaintext-only"]',
+        '.ProseMirror[contenteditable="true"]',
+        '[data-lexical-editor="true"][contenteditable="true"]',
         '[contenteditable="true"][role="textbox"]',
         '[contenteditable="plaintext-only"][role="textbox"]',
-        'textarea[name="prompt-textarea"]'
+        'textarea[name="prompt-textarea"]',
+        'textarea[data-testid*="composer"]'
       ];
 
       const candidates = [];
       const seen = new Set();
       selectors.forEach(selector => {
         try {
-          document.querySelectorAll(selector).forEach(element => {
-            if (seen.has(element)) return;
+          document.querySelectorAll(selector).forEach(rawElement => {
+            const element = resolveGptComposerEditable(rawElement);
+            if (!element || seen.has(element)) return;
             seen.add(element);
             candidates.push(element);
           });
@@ -3877,20 +3920,26 @@
       });
 
       candidates.sort((a, b) => gptComposerElementScore(b) - gptComposerElementScore(a));
-      const best = candidates.find(element => Number.isFinite(gptComposerElementScore(element)));
-      return best || null;
+      return candidates.find(element => Number.isFinite(gptComposerElementScore(element))) || null;
     }
 
     function gptPromptDiagnostics() {
       const count = selector => { try { return document.querySelectorAll(selector).length; } catch (error) { return -1; } };
+      const found = findGptPrompt();
       return {
         href: location.href,
         promptId: count('#prompt-textarea'),
+        promptNestedEditable: count('#prompt-textarea [contenteditable="true"], #prompt-textarea [contenteditable="plaintext-only"]'),
         proseMirror: count('.ProseMirror[contenteditable="true"]'),
-        roleTextbox: count('[contenteditable="true"][role="textbox"]'),
-        editable: count('[contenteditable="true"]'),
+        lexical: count('[data-lexical-editor="true"][contenteditable="true"]'),
+        roleTextbox: count('[contenteditable="true"][role="textbox"], [contenteditable="plaintext-only"][role="textbox"]'),
+        editable: count('[contenteditable="true"], [contenteditable="plaintext-only"]'),
         textarea: count('textarea'),
-        forms: count('form')
+        forms: count('form'),
+        selectedTag: found?.tagName || '',
+        selectedId: found?.id || '',
+        selectedTestId: found?.getAttribute?.('data-testid') || '',
+        selectedEditable: found?.getAttribute?.('contenteditable') || ''
       };
     }
 
@@ -3947,25 +3996,39 @@
     }
 
     async function insertPrompt(prompt, text) {
+      prompt = resolveGptComposerEditable(prompt);
+      if (!prompt) return false;
       prompt.focus();
 
       if ('value' in prompt && typeof prompt.value === 'string') {
-        const setter = Object.getOwnPropertyDescriptor(Object.getPrototypeOf(prompt), 'value')?.set;
+        const prototype = Object.getPrototypeOf(prompt);
+        const setter = Object.getOwnPropertyDescriptor(prototype, 'value')?.set;
         if (setter) setter.call(prompt, text);
         else prompt.value = text;
         dispatchInputCompat(prompt, text);
         prompt.dispatchEvent(new Event('change', { bubbles: true }));
-        await sleep(80);
+        await sleep(100);
         return editableText(prompt).trim().length > 0;
       }
+
+      try {
+        const selection = window.getSelection?.();
+        if (selection) {
+          const range = document.createRange();
+          range.selectNodeContents(prompt);
+          range.collapse(false);
+          selection.removeAllRanges();
+          selection.addRange(range);
+        }
+      } catch (error) {}
 
       let inserted = false;
       try { inserted = document.execCommand('insertText', false, text) === true; } catch (error) {}
       dispatchInputCompat(prompt, text);
-      await sleep(100);
-      if (inserted && editableText(prompt).trim()) return true;
+      await sleep(120);
+      if (editableText(prompt).trim().length > 0) return true;
 
-      // iOS Safari에서 execCommand가 무시되면 contenteditable 내용을 직접 구성한다.
+      // React/ProseMirror가 execCommand를 무시하는 경우 실제 편집 요소 안에 직접 구성하고 input 이벤트를 보낸다.
       try {
         prompt.replaceChildren();
         String(text).split('\n').forEach(line => {
@@ -3983,7 +4046,7 @@
           selection.addRange(range);
         }
         dispatchInputCompat(prompt, text);
-        await sleep(120);
+        await sleep(180);
         return editableText(prompt).trim().length > 0;
       } catch (error) {
         console.warn('[AUTO_KILLER Core] GPT 입력 fallback 실패', error);
