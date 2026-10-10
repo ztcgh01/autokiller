@@ -7,7 +7,7 @@ This directory mirrors the actual private ChatGPT plugin source used for the 역
 - Backend ID: `plugins_6aca3662eee4819184ade9b529406401`
 - Display name: `역병킬러`
 - Package name: `yeokbyeong-killer`
-- Current migrated version: `0.2.1`
+- Current migrated version: `0.2.2`
 - Scope: private personal plugin
 - Shape: skill-only, no MCP app, no API key
 
