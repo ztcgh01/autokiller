@@ -162,3 +162,8 @@ Do not merge to `main` until all of these pass:
 - diagnostics OFF
 - no blank-response false success
 - no startup failure before the AUTO_KILLER panel appears
+
+
+## Exact-instruction regression
+
+Before promotion, test at least one case for each major section of the verbatim legacy instructions: output format, InfoBox, quote line, inner-thought preservation, star narration merging/splitting, narrator absorption, tone/intensity, repetition prevention, tense cleanup, particle correction, punctuation, numeric cleanup, bubble merge/split, short-output behavior, next-scene generation, and final output validation.
