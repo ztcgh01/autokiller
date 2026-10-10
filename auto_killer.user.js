@@ -2,7 +2,10 @@
 // @name         AUTO_KILLER
 // @namespace    local.zeta.gpt.oneclick.unified
 // @version      3.0.0
-// @description  GitHub의 최신 AUTO_KILLER 3.0 통합 코어를 Android, iPhone, 데스크톱 브라우저에서 자동으로 불러옵니다.\n// @downloadURL  https://ztcgh01.github.io/autokiller/auto_killer.user.js\n// @updateURL    https://ztcgh01.github.io/autokiller/auto_killer.user.js\n// @match        https://*.zeta-ai.io/*
+// @description  GitHub의 최신 AUTO_KILLER 3.0 통합 코어를 Android, iPhone, 데스크톱 브라우저에서 자동으로 불러옵니다.
+// @downloadURL  https://ztcgh01.github.io/autokiller/auto_killer.user.js
+// @updateURL    https://ztcgh01.github.io/autokiller/auto_killer.user.js
+// @match        https://*.zeta-ai.io/*
 // @match        https://zeta-ai.io/*
 // @match        https://chatgpt.com/*
 // @match        https://*.chatgpt.com/*
