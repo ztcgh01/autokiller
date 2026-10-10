@@ -4119,57 +4119,102 @@
       return '';
     }
 
-    async function ensurePluginHandshake(job, say) {
-      diagnosticCheckpoint('PLUGIN_HANDSHAKE_START', { protocol: PLUGIN_PROTOCOL, targetMode: job?.targetMode || '' });
-      const prompt = await waitForResult(findGptPrompt, 30000, 200);
-      if (!prompt) {
-        diagnosticFail('PLUGIN_HANDSHAKE_PROMPT_NOT_FOUND', { dom: diagnosticDomSnapshot() });
-        return false;
+    async function persistPluginStageJob(job) {
+      try { sessionStorage.setItem(GPT_SESSION_KEY, JSON.stringify(job)); } catch (error) {}
+      if (!job?.bookmarklet) {
+        try { await sharedStorage.set(JOB_KEY, job); } catch (error) {}
       }
+    }
 
-      const turns = assistantTurns();
-      const latest = turns[turns.length - 1] || null;
-      const baseline = {
-        count: turns.length,
-        id: currentTurnId(latest),
-        text: assistantText(latest, false)
+    function pluginHandshakeBaselineFromJob(job) {
+      return {
+        count: Number(job?.handshakeBaselineAssistantCount || 0),
+        id: String(job?.handshakeBaselineTurnId || ''),
+        text: String(job?.handshakeBaselineAssistantText || '')
       };
+    }
 
-      const inserted = await insertPrompt(prompt, pluginHandshakePrompt());
-      if (!inserted) {
-        diagnosticFail('PLUGIN_HANDSHAKE_INSERT_FAILED', { dom: diagnosticDomSnapshot() });
-        return false;
-      }
-
-      const submit = await waitForResult(() => findGptSubmitButton(prompt), 10000, 200);
-      if (!submit) {
-        diagnosticFail('PLUGIN_HANDSHAKE_SUBMIT_NOT_FOUND', { dom: diagnosticDomSnapshot() });
-        return false;
-      }
-
-      let attempts = 0;
-      while ((submit.disabled || submit.getAttribute?.('aria-disabled') === 'true') && attempts++ < 30) await sleep(200);
-      if (submit.disabled || submit.getAttribute?.('aria-disabled') === 'true') {
-        diagnosticFail('PLUGIN_HANDSHAKE_SUBMIT_DISABLED', { dom: diagnosticDomSnapshot() });
-        return false;
-      }
-
+    async function evaluatePluginHandshake(job, say) {
       say('역병킬러 플러그인 연결 확인 중…');
-      submit.click();
-      const reply = await waitForPluginHandshakeReply(baseline);
+      const reply = await waitForPluginHandshakeReply(pluginHandshakeBaselineFromJob(job));
       const ok = reply === PLUGIN_HANDSHAKE_EXPECTED;
+
       if (ok) {
-        diagnosticCheckpoint('PLUGIN_HANDSHAKE_OK', { responseLength: reply.length });
-        return true;
+        const readyJob = {
+          ...job,
+          stage: 'plugin-ready',
+          pluginHandshakeVerified: true,
+          pluginHandshakeVerifiedAt: Date.now()
+        };
+        await persistPluginStageJob(readyJob);
+        diagnosticCheckpoint('PLUGIN_HANDSHAKE_OK', { responseLength: reply.length, resumed: job?.stage === 'plugin-handshake-submitted' });
+        return { ok: true, job: readyJob };
       }
 
       diagnosticFail('PLUGIN_HANDSHAKE_FAILED', {
         responsePresent: !!reply,
         responseLength: reply.length,
         expectedLength: PLUGIN_HANDSHAKE_EXPECTED.length,
+        resumed: job?.stage === 'plugin-handshake-submitted',
         dom: diagnosticDomSnapshot()
       });
-      return false;
+      return { ok: false, job };
+    }
+
+    async function ensurePluginHandshake(job, say) {
+      if (job?.stage === 'plugin-ready' && job?.pluginHandshakeVerified === true) {
+        return { ok: true, job };
+      }
+
+      if (job?.stage === 'plugin-handshake-submitted') {
+        diagnosticCheckpoint('PLUGIN_HANDSHAKE_RESUME', {
+          protocol: PLUGIN_PROTOCOL,
+          baselineCount: Number(job?.handshakeBaselineAssistantCount || 0)
+        });
+        return evaluatePluginHandshake(job, say);
+      }
+
+      diagnosticCheckpoint('PLUGIN_HANDSHAKE_START', { protocol: PLUGIN_PROTOCOL, targetMode: job?.targetMode || '' });
+      const prompt = await waitForResult(findGptPrompt, 30000, 200);
+      if (!prompt) {
+        diagnosticFail('PLUGIN_HANDSHAKE_PROMPT_NOT_FOUND', { dom: diagnosticDomSnapshot() });
+        return { ok: false, job };
+      }
+
+      const turns = assistantTurns();
+      const latest = turns[turns.length - 1] || null;
+      const handshakeJob = {
+        ...job,
+        stage: 'plugin-handshake-submitted',
+        handshakeBaselineAssistantCount: turns.length,
+        handshakeBaselineTurnId: currentTurnId(latest),
+        handshakeBaselineAssistantText: assistantText(latest, false),
+        handshakeSubmittedAt: Date.now()
+      };
+
+      const inserted = await insertPrompt(prompt, pluginHandshakePrompt());
+      if (!inserted) {
+        diagnosticFail('PLUGIN_HANDSHAKE_INSERT_FAILED', { dom: diagnosticDomSnapshot() });
+        return { ok: false, job };
+      }
+
+      const submit = await waitForResult(() => findGptSubmitButton(prompt), 10000, 200);
+      if (!submit) {
+        diagnosticFail('PLUGIN_HANDSHAKE_SUBMIT_NOT_FOUND', { dom: diagnosticDomSnapshot() });
+        return { ok: false, job };
+      }
+
+      let attempts = 0;
+      while ((submit.disabled || submit.getAttribute?.('aria-disabled') === 'true') && attempts++ < 30) await sleep(200);
+      if (submit.disabled || submit.getAttribute?.('aria-disabled') === 'true') {
+        diagnosticFail('PLUGIN_HANDSHAKE_SUBMIT_DISABLED', { dom: diagnosticDomSnapshot() });
+        return { ok: false, job };
+      }
+
+      await persistPluginStageJob(handshakeJob);
+      say('역병킬러 플러그인 연결 확인 중…');
+      submit.click();
+      return evaluatePluginHandshake(handshakeJob, say);
     }
 
     function assistantResponseActionReady(turn) {
@@ -4516,17 +4561,18 @@
       }
 
       if (job.targetMode === CHAT_TARGET_PLUGIN) {
-        const pluginReady = await ensurePluginHandshake(job, say);
-        if (!pluginReady) {
+        const handshake = await ensurePluginHandshake(job, say);
+        if (handshake.ok) {
+          job = handshake.job;
+        } else {
           job = {
             ...job,
+            stage: 'plugin-fallback-ready',
             targetMode: CHAT_TARGET_FALLBACK,
-            pluginHandshakeFailed: true
+            pluginHandshakeFailed: true,
+            pluginHandshakeFailedAt: Date.now()
           };
-          try { sessionStorage.setItem(GPT_SESSION_KEY, JSON.stringify(job)); } catch (error) {}
-          if (!job.bookmarklet) {
-            try { await sharedStorage.set(JOB_KEY, job); } catch (error) {}
-          }
+          await persistPluginStageJob(job);
           say('플러그인 연결 확인 실패 · 내장 지침 fallback으로 계속해요.');
         }
       }
