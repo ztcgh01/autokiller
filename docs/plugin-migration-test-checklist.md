@@ -28,6 +28,12 @@ Runtime result recorded from a new ChatGPT conversation after v0.4.2 release:
   - narration/dialogue ordering: PASS
   - connective narration punctuation: PASS
 - Writing Block UI for Golden Test 1: not directly verifiable from pasted text
+- Golden formatting test: FAIL
+  - native Writing Block: PASS
+  - inner-thought preservation `('...')`: PASS
+  - InfoBox header/structure preservation: FAIL (header dropped; rendered as generic code block)
+  - quote-line exact preservation: FAIL (`\\>` retained but extra space inserted)
+  - quote trailing blank-line discipline: FAIL (excess blank lines)
 - remaining direct RP behavior tests: pending
 
 Use `docs/plugin-rp-golden-smoke-tests.md` as the fixed RP behavior suite for Phase 1 and minimum AUTO_KILLER round-trip coverage.
