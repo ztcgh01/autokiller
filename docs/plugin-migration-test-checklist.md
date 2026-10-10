@@ -4,9 +4,10 @@
 
 Completed before browser runtime testing:
 
-- current plugin release: v0.4.2
+- current plugin release: v0.4.3
 - installed plugin reference vs uploaded `현재지침.txt`: exact content PASS
 - v0.4.2 current-run verbatim load gate present in `SKILL.md`: PASS
+- v0.4.3 structure-preservation validation gate present in `SKILL.md`: PASS
 - GitHub plugin mirror vs uploaded source: exact content PASS
 - AUTO_KILLER embedded `LEGACY_RP_INSTRUCTIONS` vs plugin mirror: exact normalized content PASS
 - `auto_killer.core.js` JavaScript syntax: PASS
