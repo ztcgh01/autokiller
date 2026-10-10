@@ -1,8 +1,8 @@
 // ==UserScript==
 // @name         AUTO_KILLER Plugin Migration Test
 // @namespace    local.zeta.gpt.oneclick.plugin-test
-// @version      3.0.0-alpha.15
-// @description  production 2.25.5.9 로더 구조 기반 플러그인 3.0 테스트 로더. alpha.14 생성·요약 현재 로드분 진행 확인 복구 코어를 고정 로드합니다.
+// @version      3.0.0-alpha.16
+// @description  production 2.25.5.9 로더 구조 기반 플러그인 3.0 테스트 로더. alpha.15 현재 ZETA 대화 수집 fallback 코어를 고정 로드합니다.
 // @downloadURL  https://cdn.jsdelivr.net/gh/ztcgh01/autokiller@plugin-migration-3.0/auto_killer.plugin-test.user.js
 // @updateURL    https://cdn.jsdelivr.net/gh/ztcgh01/autokiller@plugin-migration-3.0/auto_killer.plugin-test.user.js
 // @match        https://*.zeta-ai.io/*
@@ -36,9 +36,9 @@
 
   // 설치된 로더와 같은 온라인 폴더의 코어를 자동으로 찾습니다.
   // iPhone Userscripts처럼 설치 주소를 제공하지 않는 환경에서는 배포자가 지정한 주소를 사용합니다.
-  const FALLBACK_CORE_URL = 'https://cdn.jsdelivr.net/gh/ztcgh01/autokiller@5c36cb7a500c5c8b4164d565224f257a7ea325db/auto_killer.core.js';
+  const FALLBACK_CORE_URL = 'https://cdn.jsdelivr.net/gh/ztcgh01/autokiller@ebfe623e453eb9412409b634644b3c329241a41f/auto_killer.core.js';
   const CORE_URL = FALLBACK_CORE_URL;
-  const LOADER_VERSION = '3.0.0-alpha.15';
+  const LOADER_VERSION = '3.0.0-alpha.16';
   const pageWindow = typeof unsafeWindow === 'object' ? unsafeWindow : window;
   const legacyLoaderInfo = typeof GM_info === 'object' && GM_info ? GM_info : null;
   const modernLoaderInfo = typeof GM === 'object' && GM && typeof GM.info === 'object' ? GM.info : null;
