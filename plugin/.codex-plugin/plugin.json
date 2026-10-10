@@ -1,16 +1,16 @@
 {
   "interface": {
     "category": "Productivity",
-    "defaultPrompt": "\uce90\ub9ad\ud130 \ucc44\ud305/RP \ubb38\uc7a5\uc744 \ubcf4\ub0b4 \uc218\uc815\ud558\uac70\ub098 AUTO_KILLER \uc791\uc5c5\uc744 \uc2e4\ud589\ud574 \uc8fc\uc138\uc694.",
+    "defaultPrompt": "캐릭터 채팅/RP 문장을 보내 수정하거나 AUTO_KILLER 작업을 실행해 주세요.",
     "developerName": "Joe Ssi",
-    "displayName": "\uc5ed\ubcd1\ud0ac\ub7ec",
-    "longDescription": "\uae30\uc874 \uc5ed\ubcd1\ud0ac\ub7ec Custom GPT\uc758 \ucd5c\uc2e0 \uce90\ub9ad\ud130 \ucc44\ud305/RP \uc9c0\uce68\uc744 \ucd95\uc57d \uc5c6\uc774 \uc6d0\ubb38 \uadf8\ub300\ub85c \ub2e8\uc77c \uae30\uc900\uc73c\ub85c \uc801\uc6a9\ud569\ub2c8\ub2e4. \uc218\uc815\u00b7\uc815\ub9ac\u00b7\ud569\uce58\uae30\u00b7\ub098\ub204\uae30\u00b7\uc9e7\ucd9c\u00b7\uc774\uc5b4\uc4f0\uae30\u00b7\uc0c8 \uc7a5\uba74 \uc0dd\uc131\uacfc AUTO_KILLER \uac80\ud1a0\u00b7\uc0dd\uc131\u00b7\uc720\uc800\ub178\ud2b8 \uc694\uc57d\uc744 \ucc98\ub9ac\ud558\uba70, RP \uacb0\uacfc\ub294 \uc6d0\ub798 \uc9c0\uce68\ub300\ub85c \ub124\uc774\ud2f0\ube0c Writing Block \ud615\uc2dd\uc744 \uc720\uc9c0\ud569\ub2c8\ub2e4.",
-    "shortDescription": "\uae30\uc874 \uc5ed\ubcd1\ud0ac\ub7ec \ucd5c\uc2e0 \uc9c0\uce68 \uc6d0\ubb38 \uc804\uccb4 \uc774\uc2dd + AUTO_KILLER \uc5f0\ub3d9",
+    "displayName": "역병킬러",
+    "longDescription": "기존 역병킬러 Custom GPT의 최신 캐릭터 채팅/RP 지침을 축약 없이 원문 그대로 단일 기준으로 적용합니다. 수정·정리·합치기·나누기·짧출·이어쓰기·새 장면 생성과 AUTO_KILLER 검토·생성·유저노트 요약을 처리하며, RP 결과는 원래 지침대로 네이티브 Writing Block 형식을 유지합니다.",
+    "shortDescription": "기존 역병킬러 최신 지침 원문 전체 이식 + AUTO_KILLER 연동",
     "capabilities": []
   },
   "name": "yeokbyeong-killer",
-  "version": "0.4.3",
-  "description": "\uae30\uc874 \uc5ed\ubcd1\ud0ac\ub7ec Custom GPT\uc758 \ucd5c\uc2e0 RP \uc9c0\uce68 \uc804\uccb4\ub97c \uc6d0\ubb38 \uadf8\ub300\ub85c \uc774\uc2dd\ud558\uace0, AUTO_KILLER \uac80\ud1a0\u00b7\uc0dd\uc131\u00b7\uc720\uc800\ub178\ud2b8 \uc694\uc57d \uc5f0\ub3d9\uc744 \uc81c\uacf5\ud558\ub294 \ud50c\ub7ec\uadf8\uc778\uc785\ub2c8\ub2e4.",
+  "version": "0.4.4",
+  "description": "기존 역병킬러 Custom GPT의 최신 RP 지침 전체를 원문 그대로 이식하고, AUTO_KILLER 검토·생성·유저노트 요약 연동을 제공하는 플러그인입니다.",
   "author": {
     "name": "Joe Ssi",
     "email": "pstar0924@gmail.com"
