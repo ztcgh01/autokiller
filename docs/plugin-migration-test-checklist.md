@@ -252,3 +252,24 @@ Direct-RP smoke testing is considered complete for migration purposes except the
 - On missing plugin verification marker, AUTO_KILLER stops and does not apply the result to ZETA.
 - Plugin mode now respects the temporary-chat ON/OFF setting. With OFF, only a conversation that completed a verified plugin job is saved/reused.
 - Plugin transport updated to v0.4.5. Production main remains untouched.
+
+
+## 3.0.0-rc.1 runtime gate
+
+PASS on Android mobile web:
+- Plugin mode, temporary chat OFF: review round-trip PASS.
+- Second review with temporary chat OFF: existing ChatGPT conversation reuse PASS.
+- Plugin mode, temporary chat ON: fresh ChatGPT conversation PASS.
+- generate-zeta: conversation collection, plugin transfer, response, ZETA return/input PASS.
+- summarize-zeta: conversation collection, plugin transfer, response, ZETA return/result PASS.
+- Current-ZETA conversation fallback anchored by visible edit buttons is active only when the primary collector finds zero character turns.
+- Embedded RP-instruction fallback: absent.
+- Handshake/challenge/success-marker transport: absent.
+- Plugin UI automation (@ mention / + menu clicking): absent.
+- Transport payload: minimal `AK_PLUGIN_V1` + JSON envelope.
+
+RC cleanup:
+- Core version: 3.0.0-rc.1.
+- Stale 2.25.5.9 loader-migration banner removed from RC core.
+- Plugin v0.4.9 remains unchanged after successful runtime validation.
+- Production `main` remains untouched pending explicit promotion.
