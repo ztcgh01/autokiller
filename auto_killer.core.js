@@ -1,14 +1,14 @@
 /* AUTO_KILLER remote core
- * Unified remote core: 3.0.0-alpha.8
+ * Unified remote core: 3.0.0-alpha.9
  * Plugin migration test: plugin-first + legacy rollback; no embedded instruction fallback.
  */
 (function () {
   'use strict';
   window.__AUTO_KILLER_REMOTE_CORE_LOADED__ = true;
-  window.__AUTO_KILLER_REMOTE_CORE_VERSION__ = '3.0.0-alpha.8';
+  window.__AUTO_KILLER_REMOTE_CORE_VERSION__ = '3.0.0-alpha.9';
 
     'use strict';
-    const SCRIPT_VERSION = '3.0.0-alpha.8';
+    const SCRIPT_VERSION = '3.0.0-alpha.9';
     const LEGACY_GPT_URL = 'https://chatgpt.com/g/g-6a1099bd986881918e0c582d35aafb1d-yeogbyeongkilreo';
     const GPT_URL = LEGACY_GPT_URL;
     const CHATGPT_ROOT_URL = 'https://chatgpt.com/';
@@ -4054,154 +4054,195 @@
       }
     }
 
-    function pluginMentionOptionText(element) {
+    function pluginUiText(element) {
       return String(element?.innerText || element?.textContent || '').replace(/\s+/g, ' ').trim();
     }
 
-    function findYeokbyeongPluginMentionOption(prompt = null) {
+    function composerRootForPrompt(prompt) {
+      return prompt?.closest?.('[data-type="unified-composer"], [data-testid="composer"], [data-testid="composer-root"], form')
+        || prompt?.parentElement
+        || document;
+    }
+
+    function findComposerPlusButton(prompt) {
+      const root = composerRootForPrompt(prompt);
       const selectors = [
-        '[role="listbox"] [role="option"]',
-        '[role="menu"] [role="menuitem"]',
-        '[cmdk-list] [cmdk-item]',
-        '[cmdk-item]',
-        '[data-radix-popper-content-wrapper] [role="option"]',
-        '[data-radix-popper-content-wrapper] [role="menuitem"]',
-        '[data-radix-popper-content-wrapper] [cmdk-item]',
-        '[data-state="open"] [role="option"]',
-        '[data-state="open"] [role="menuitem"]',
-        '[data-state="open"] [cmdk-item]'
+        'button[data-testid="composer-plus-btn"]',
+        'button[data-testid="composer-plus-button"]',
+        'button[data-testid*="composer"][data-testid*="plus"]',
+        'button[aria-label*="Add"]',
+        'button[aria-label*="add"]',
+        'button[aria-label*="Attach"]',
+        'button[aria-label*="attach"]',
+        'button[aria-label*="Tools"]',
+        'button[aria-label*="tools"]',
+        'button[aria-label*="추가"]',
+        'button[aria-label*="첨부"]',
+        'button[aria-label*="도구"]'
       ];
-      const candidates = [];
-      const seen = new Set();
-      const promptRect = (() => { try { return prompt?.getBoundingClientRect?.() || null; } catch (error) { return null; } })();
+      const candidates=[];
+      const seen=new Set();
 
-      const consider = element => {
-        if (!element || seen.has(element) || !isVisibleGptElement(element)) return;
-        seen.add(element);
-        if (element.closest?.('[data-message-author-role], [data-writing-block="true"], [data-turn]')) return;
-        const text = pluginMentionOptionText(element);
-        if (!text || !/(?:^|\s)역병킬러(?:\s|$)/.test(text)) return;
-
-        let distance = 0;
-        if (promptRect) {
-          try {
-            const rect = element.getBoundingClientRect();
-            const cx = rect.left + rect.width / 2;
-            const cy = rect.top + rect.height / 2;
-            const px = promptRect.left + promptRect.width / 2;
-            const py = promptRect.top + promptRect.height / 2;
-            distance = Math.hypot(cx - px, cy - py);
-            if (distance > Math.max(innerWidth, innerHeight) * 1.25) return;
-          } catch (error) {}
-        }
-        candidates.push({ element, text, distance });
+      const consider=button=>{
+        if(!button||seen.has(button)||!isVisibleGptElement(button)) return;
+        seen.add(button);
+        if(button.getAttribute?.('data-testid')==='stop-button') return;
+        if(isAssistantResponseActionButton(button)) return;
+        const label=`${button.getAttribute?.('aria-label')||''} ${button.title||''} ${pluginUiText(button)}`.trim();
+        if(/send|submit|보내기|전송/i.test(label)) return;
+        try {
+          const rect=button.getBoundingClientRect();
+          candidates.push({button,label,left:rect.left,top:rect.top,width:rect.width,height:rect.height});
+        } catch(error) {}
       };
 
-      selectors.forEach(selector => {
-        try { document.querySelectorAll(selector).forEach(consider); } catch (error) {}
+      selectors.forEach(selector=>{
+        try { root.querySelectorAll(selector).forEach(consider); } catch(error) {}
       });
 
-      // ChatGPT의 메뉴 역할/속성이 바뀐 경우를 위한 제한적 fallback.
-      if (!candidates.length) {
-        try {
-          document.querySelectorAll('button, [role="option"], [role="menuitem"], [cmdk-item]')
-            .forEach(consider);
-        } catch (error) {}
+      if(!candidates.length){
+        try { root.querySelectorAll('button').forEach(consider); } catch(error) {}
       }
 
-      candidates.sort((a, b) => {
-        const aExact = a.text === '역병킬러' ? 1 : 0;
-        const bExact = b.text === '역병킬러' ? 1 : 0;
-        if (aExact !== bExact) return bExact - aExact;
-        return a.distance - b.distance;
+      candidates.sort((a,b)=>{
+        const aNamed=/(add|attach|tools|plus|추가|첨부|도구)/i.test(a.label)?1:0;
+        const bNamed=/(add|attach|tools|plus|추가|첨부|도구)/i.test(b.label)?1:0;
+        if(aNamed!==bNamed) return bNamed-aNamed;
+        return a.left-b.left;
       });
-      return candidates[0]?.element || null;
+      return candidates[0]?.button||null;
     }
 
-    function composerHasYeokbyeongMention(prompt) {
-      if (!prompt) return false;
-      const selectors = [
-        'a[href^="plugin://"]',
-        '[data-plugin-id]',
-        '[data-plugin]',
-        '[data-mention]',
-        '[contenteditable="false"]'
+    function findVisiblePopupItem(pattern,{excludePattern=null}={}) {
+      const selectors=[
+        '[role="menu"] [role="menuitem"]',
+        '[role="listbox"] [role="option"]',
+        '[role="dialog"] button',
+        '[role="dialog"] [role="option"]',
+        '[role="dialog"] [role="menuitem"]',
+        '[cmdk-list] [cmdk-item]',
+        '[cmdk-item]',
+        '[data-radix-popper-content-wrapper] [role="menuitem"]',
+        '[data-radix-popper-content-wrapper] [role="option"]',
+        '[data-radix-popper-content-wrapper] button',
+        '[data-state="open"] [role="menuitem"]',
+        '[data-state="open"] [role="option"]',
+        '[data-state="open"] button'
       ];
-      for (const selector of selectors) {
-        let elements = [];
-        try { elements = [...prompt.querySelectorAll(selector)]; } catch (error) {}
-        if (elements.some(element => /역병킬러/.test(pluginMentionOptionText(element)))) return true;
-      }
-      return false;
+      const candidates=[];
+      const seen=new Set();
+      const consider=element=>{
+        if(!element||seen.has(element)||!isVisibleGptElement(element)) return;
+        seen.add(element);
+        if(element.closest?.('[data-message-author-role], [data-writing-block="true"], [data-turn]')) return;
+        const text=pluginUiText(element);
+        if(!text||!pattern.test(text)) return;
+        if(excludePattern&&excludePattern.test(text)) return;
+        candidates.push({element,text});
+      };
+      selectors.forEach(selector=>{
+        try { document.querySelectorAll(selector).forEach(consider); } catch(error) {}
+      });
+      candidates.sort((a,b)=>{
+        const ax=a.text.length, bx=b.text.length;
+        return ax-bx;
+      });
+      return candidates[0]?.element||null;
     }
 
-    async function appendPromptText(prompt, text) {
-      prompt = resolveGptComposerEditable(prompt);
-      if (!prompt) return false;
-      prompt.focus();
-      const before = editableText(prompt).length;
+    function findPluginPickerSearchInput() {
+      const selectors=[
+        '[role="dialog"] input[type="search"]',
+        '[role="dialog"] input[placeholder]',
+        '[cmdk-input]',
+        '[data-radix-popper-content-wrapper] input[type="search"]',
+        '[data-radix-popper-content-wrapper] input[placeholder]',
+        '[data-state="open"] input[type="search"]',
+        '[data-state="open"] input[placeholder]'
+      ];
+      for(const selector of selectors){
+        try{
+          const input=[...document.querySelectorAll(selector)].find(isVisibleGptElement);
+          if(input) return input;
+        }catch(error){}
+      }
+      return null;
+    }
 
-      try {
-        const selection = window.getSelection?.();
-        if (selection) {
-          const range = document.createRange();
-          range.selectNodeContents(prompt);
-          range.collapse(false);
-          selection.removeAllRanges();
-          selection.addRange(range);
-        }
-      } catch (error) {}
-
-      let inserted = false;
-      try { inserted = document.execCommand('insertText', false, '\n' + text) === true; } catch (error) {}
-      dispatchInputCompat(prompt, '\n' + text);
-      await sleep(140);
-      if (editableText(prompt).length > before) return true;
-
-      // 멘션 칩은 보존하고 그 뒤에 본문 노드만 추가한다.
-      try {
-        const spacer = document.createElement('p');
-        spacer.append(document.createElement('br'));
-        prompt.append(spacer);
-        String(text).split('\n').forEach(line => {
-          const paragraph = document.createElement('p');
-          if (line) paragraph.textContent = line;
-          else paragraph.append(document.createElement('br'));
-          prompt.append(paragraph);
-        });
-        dispatchInputCompat(prompt, text);
+    async function setPlainInputValue(input,text){
+      if(!input) return false;
+      try{
+        input.focus();
+        const proto=Object.getPrototypeOf(input);
+        const setter=Object.getOwnPropertyDescriptor(proto,'value')?.set;
+        if(setter) setter.call(input,text);
+        else input.value=text;
+        input.dispatchEvent(new InputEvent('input',{bubbles:true,inputType:'insertText',data:text}));
+        input.dispatchEvent(new Event('change',{bubbles:true}));
         await sleep(180);
-        return editableText(prompt).length > before;
-      } catch (error) {
-        console.warn('[AUTO_KILLER Core] 플러그인 본문 추가 실패', error);
+        return String(input.value||'').trim().length>0;
+      }catch(error){
         return false;
       }
     }
 
-    async function activateYeokbyeongPluginMention(prompt, say) {
+    async function activateYeokbyeongPluginViaComposer(prompt,say){
       say('역병킬러 플러그인을 선택하는 중…');
 
-      const typed = await insertPrompt(prompt, '@역병킬러');
-      if (!typed) return false;
+      const plus=await waitForResult(()=>findComposerPlusButton(prompt),5000,120);
+      if(!plus){
+        diagnosticFail('PLUGIN_PLUS_BUTTON_NOT_FOUND',{promptDiagnostics:gptPromptDiagnostics(),dom:diagnosticDomSnapshot()});
+        return false;
+      }
+      plus.click();
+      await sleep(220);
 
-      const option = await waitForResult(() => findYeokbyeongPluginMentionOption(prompt), 8000, 120);
-      if (!option) {
-        diagnosticFail('PLUGIN_MENTION_OPTION_NOT_FOUND', { promptDiagnostics: gptPromptDiagnostics(), dom: diagnosticDomSnapshot() });
+      let pluginsItem=await waitForResult(
+        ()=>findVisiblePopupItem(/^(?:Plugins?|플러그인)(?:\s|$)/i),
+        3500,100
+      );
+
+      if(!pluginsItem){
+        const moreItem=findVisiblePopupItem(/^(?:More|더보기|기타)(?:\s|$)/i);
+        if(moreItem){
+          moreItem.click();
+          await sleep(180);
+          pluginsItem=await waitForResult(
+            ()=>findVisiblePopupItem(/^(?:Plugins?|플러그인)(?:\s|$)/i),
+            3000,100
+          );
+        }
+      }
+
+      if(!pluginsItem){
+        diagnosticFail('PLUGIN_MENU_ITEM_NOT_FOUND',{dom:diagnosticDomSnapshot()});
         return false;
       }
 
-      try {
-        option.click();
-      } catch (error) {
-        diagnosticFail('PLUGIN_MENTION_OPTION_CLICK_FAILED', { errorName: error?.name || 'Error' });
+      pluginsItem.click();
+      await sleep(250);
+
+      const searchInput=await waitForResult(()=>findPluginPickerSearchInput(),2500,100);
+      if(searchInput){
+        await setPlainInputValue(searchInput,'역병킬러');
+        await sleep(220);
+      }
+
+      const pluginItem=await waitForResult(
+        ()=>findVisiblePopupItem(/역병킬러/i,{excludePattern:/\.html\b|자동화툴|배포용/i}),
+        7000,120
+      );
+
+      if(!pluginItem){
+        diagnosticFail('YEOKBYEONG_PLUGIN_ITEM_NOT_FOUND',{dom:diagnosticDomSnapshot()});
         return false;
       }
 
+      const selectedText=pluginUiText(pluginItem);
+      pluginItem.click();
       await sleep(350);
-      diagnosticCheckpoint('PLUGIN_MENTION_SELECTED', {
-        detectedChip: composerHasYeokbyeongMention(prompt),
-        composerLength: editableText(prompt).length
-      });
+
+      diagnosticCheckpoint('YEOKBYEONG_PLUGIN_SELECTED',{selectedText:selectedText.slice(0,120)});
       return true;
     }
 
@@ -4659,15 +4700,15 @@
 
       let inserted = false;
       if (job.targetMode === CHAT_TARGET_PLUGIN) {
-        const mentionSelected = await activateYeokbyeongPluginMention(prompt, say);
-        if (!mentionSelected) {
-          say('역병킬러 플러그인 멘션을 선택하지 못했어요. 결과를 전송하지 않았어요.', true);
+        const pluginSelected = await activateYeokbyeongPluginViaComposer(prompt, say);
+        if (!pluginSelected) {
+          say('역병킬러 플러그인을 선택하지 못했어요. 결과를 전송하지 않았어요.', true);
           state.textContent = '플러그인 선택 실패';
           gptBusy = false;
           return;
         }
         say('GPT 프롬프트를 자동 입력하는 중…');
-        inserted = await appendPromptText(prompt, outgoingPromptText);
+        inserted = await insertPrompt(prompt, outgoingPromptText);
       } else {
         say('GPT 프롬프트를 자동 입력하는 중…');
         inserted = await insertPrompt(prompt, outgoingPromptText);
@@ -4677,7 +4718,7 @@
         requestedLength: String(outgoingPromptText || '').length,
         observedLength: editableText(prompt).length,
         targetMode: job.targetMode || CHAT_TARGET_LEGACY,
-        pluginMentionDetected: job.targetMode === CHAT_TARGET_PLUGIN ? composerHasYeokbyeongMention(prompt) : false
+        pluginSelectedViaComposer: job.targetMode === CHAT_TARGET_PLUGIN
       });
       if (!inserted) {
         diagnosticFail('GPT_PROMPT_INSERT_FAILED', { requestedLength: String(outgoingPromptText || '').length, observedLength: editableText(prompt).length, targetMode: job.targetMode || CHAT_TARGET_LEGACY, dom: diagnosticDomSnapshot() });
