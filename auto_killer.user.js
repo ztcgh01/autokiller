@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         AUTO_KILLER
 // @namespace    local.zeta.gpt.oneclick.unified
-// @version      2.25.5.7
+// @version      2.25.5.8
 // @description  GitHub의 최신 AUTO_KILLER 통합 코어를 Android, iPhone, 데스크톱 브라우저에서 자동으로 불러옵니다.
 // @downloadURL  https://ztcgh01.github.io/autokiller/auto_killer.user.js
 // @updateURL    https://ztcgh01.github.io/autokiller/auto_killer.user.js
@@ -37,7 +37,7 @@
   // iPhone Userscripts처럼 설치 주소를 제공하지 않는 환경에서는 배포자가 지정한 주소를 사용합니다.
   const FALLBACK_CORE_URL = 'https://ztcgh01.github.io/autokiller/auto_killer.core.js';
   const CORE_URL = resolveCoreUrl();
-  const LOADER_VERSION = '2.25.5.7';
+  const LOADER_VERSION = '2.25.5.8';
   const pageWindow = typeof unsafeWindow === 'object' ? unsafeWindow : window;
   const legacyLoaderInfo = typeof GM_info === 'object' && GM_info ? GM_info : null;
   const modernLoaderInfo = typeof GM === 'object' && GM && typeof GM.info === 'object' ? GM.info : null;
@@ -61,12 +61,24 @@
   }
 
   publishLoaderMetadata();
+
+  function captureEarlyJobHash() {
+    try {
+      if (!/(^|\.)chatgpt\.com$/i.test(location.hostname)) return;
+      const match = location.hash.match(/(?:^#|[&#])akjob=([^&]+)/);
+      if (!match) return;
+      sessionStorage.setItem(GPT_EARLY_HASH_KEY, match[1]);
+    } catch (error) {}
+  }
+
+  captureEarlyJobHash();
   const ANDROID_DEVICE = /Android/i.test(navigator.userAgent);
   const IOS_DEVICE = /iPad|iPhone|iPod/i.test(navigator.userAgent) ||
     (navigator.platform === 'MacIntel' && navigator.maxTouchPoints > 1);
   const STORAGE_REQUEST_EVENT = '__AUTO_KILLER_GM_REQUEST_V1__';
   const STORAGE_RESPONSE_EVENT = '__AUTO_KILLER_GM_RESPONSE_V1__';
   const DIAGNOSTIC_KEY = 'zk_diagnostic_state_v1';
+  const GPT_EARLY_HASH_KEY = 'zk_loader_akjob_v1';
   const DIAGNOSTIC_MAX_EVENTS = 220;
   let loaderDiagnosticState = null;
   let loaderDiagnosticQueue = Promise.resolve();
