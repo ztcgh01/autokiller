@@ -1,14 +1,14 @@
 /* AUTO_KILLER remote core
- * Unified remote core: 3.0.0-rc.4
+ * Unified remote core: 3.0.0-rc.5
  * Plugin migration test: plugin-first + legacy rollback; no embedded instruction fallback.
  */
 (function () {
   'use strict';
   window.__AUTO_KILLER_REMOTE_CORE_LOADED__ = true;
-  window.__AUTO_KILLER_REMOTE_CORE_VERSION__ = '3.0.0-rc.4';
+  window.__AUTO_KILLER_REMOTE_CORE_VERSION__ = '3.0.0-rc.5';
 
     'use strict';
-    const SCRIPT_VERSION = '3.0.0-rc.4';
+    const SCRIPT_VERSION = '3.0.0-rc.5';
     const LEGACY_GPT_URL = 'https://chatgpt.com/g/g-6a1099bd986881918e0c582d35aafb1d-yeogbyeongkilreo';
     const GPT_URL = LEGACY_GPT_URL;
     const CHATGPT_ROOT_URL = 'https://chatgpt.com/';
@@ -1208,6 +1208,11 @@
         diagnosticCheckpoint('TRANSFER_TAB_SKIPPED', { reason: BOOKMARKLET_MODE ? 'bookmarklet-mode' : 'new-tab-off' });
         return null;
       }
+      if (ONECLICK_BRIDGE && !ONECLICK_IOS) {
+        diagnosticCheckpoint('TRANSFER_TAB_SKIPPED', { reason: 'non-ios-oneclick' });
+        return null;
+      }
+
       try {
         const tab = window.open('about:blank', '_blank');
         diagnosticCheckpoint('TRANSFER_TAB_OPEN_RESULT', { success: !!tab && !tab.closed });
@@ -1283,11 +1288,11 @@
         const androidNeedsSafeGptEntry =
           isLegacyTargetMode(targetMode) && !ONECLICK_IOS && !temporaryChat && !verifiedConversationUrl;
 
-        const wantsNewTab = localStorage.getItem(NEW_TAB_MODE_KEY) !== 'false';
-        const preparedOneClickTab = wantsNewTab && preparedTab && !preparedTab.closed ? preparedTab : null;
+        const iosWantsNewTab = ONECLICK_IOS && localStorage.getItem(NEW_TAB_MODE_KEY) !== 'false';
+        const iosPreparedTab = iosWantsNewTab && preparedTab && !preparedTab.closed ? preparedTab : null;
         const outgoingJob = {
           ...routedJob,
-          newTab: ONECLICK_IOS ? !!preparedOneClickTab : true,
+          newTab: ONECLICK_IOS ? !!iosPreparedTab : true,
           oneclick: true,
           temporaryChat,
           targetGptVerified,
@@ -1303,15 +1308,15 @@
 
         say(temporaryChat ? `${userscriptMessage} 임시채팅으로 여는 중…` : userscriptMessage);
         if (ONECLICK_IOS) {
-          if (preparedOneClickTab) {
+          if (iosPreparedTab) {
             await diagnosticCritical('NAVIGATE_TO_GPT', {
               method: 'ios-prepared-tab',
               temporaryChat,
               targetMode,
               targetVerified: targetGptVerified
             });
-            preparedOneClickTab.location.href = target;
-            try { preparedOneClickTab.focus(); } catch (error) {}
+            iosPreparedTab.location.href = target;
+            try { iosPreparedTab.focus(); } catch (error) {}
           } else {
             await sleep(120);
             await diagnosticCritical('NAVIGATE_TO_GPT', {
@@ -1325,20 +1330,8 @@
           return;
         }
 
-        if (preparedOneClickTab) {
-          await diagnosticCritical('NAVIGATE_TO_GPT', {
-            method: 'android-prepared-tab',
-            temporaryChat,
-            targetMode,
-            targetVerified: targetGptVerified
-          });
-          preparedOneClickTab.location.href = target;
-          try { preparedOneClickTab.focus(); } catch (error) {}
-          return;
-        }
-
         await diagnosticCritical('NAVIGATE_TO_GPT', {
-          method: 'oneclick-new-tab-fallback',
+          method: 'oneclick-new-tab',
           temporaryChat,
           targetMode,
           targetVerified: targetGptVerified
@@ -1348,7 +1341,7 @@
         if (transferTab && !transferTab.closed) {
           try { transferTab.focus(); } catch (error) {}
         } else {
-          say('브라우저에서 ZETA의 팝업/새 탭 열기를 허용한 뒤 다시 시도해주세요.', true);
+          say('Firefox에서 ZETA의 팝업/새 탭 열기를 허용한 뒤 다시 시도해주세요.', true);
         }
         return;
       }
