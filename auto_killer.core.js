@@ -1,14 +1,14 @@
 /* AUTO_KILLER remote core
- * Unified remote core: 3.0.0-alpha.4
+ * Unified remote core: 3.0.0-alpha.5
  * Plugin migration test: plugin-first + legacy rollback; no embedded instruction fallback.
  */
 (function () {
   'use strict';
   window.__AUTO_KILLER_REMOTE_CORE_LOADED__ = true;
-  window.__AUTO_KILLER_REMOTE_CORE_VERSION__ = '3.0.0-alpha.4';
+  window.__AUTO_KILLER_REMOTE_CORE_VERSION__ = '3.0.0-alpha.5';
 
     'use strict';
-    const SCRIPT_VERSION = '3.0.0-alpha.4';
+    const SCRIPT_VERSION = '3.0.0-alpha.5';
     const LEGACY_GPT_URL = 'https://chatgpt.com/g/g-6a1099bd986881918e0c582d35aafb1d-yeogbyeongkilreo';
     const GPT_URL = LEGACY_GPT_URL;
     const CHATGPT_ROOT_URL = 'https://chatgpt.com/';
@@ -3783,6 +3783,17 @@
       return normalizeAssistantResponseText(fallbackText);
     }
 
+    function assistantFullMessageText(turn) {
+      if (!turn) return '';
+
+      const message = turn.matches?.('[data-message-author-role="assistant"]')
+        ? turn
+        : turn.querySelector?.('[data-message-author-role="assistant"]') || turn;
+
+      const text = message.innerText?.trim() || message.textContent?.trim() || '';
+      return normalizeAssistantResponseText(text);
+    }
+
     function dispatchInputCompat(element, text = '') {
       try {
         element.dispatchEvent(new InputEvent('input', { bubbles: true, inputType: 'insertText', data: text }));
@@ -4259,7 +4270,7 @@
 
           let finalText = latestText;
           if (job.targetMode === CHAT_TARGET_PLUGIN) {
-            const rawVerificationText = assistantText(latest, false);
+            const rawVerificationText = assistantFullMessageText(latest);
             if (!hasPluginVerificationMarker(rawVerificationText)) {
               finished = true;
               cleanup();
@@ -4269,7 +4280,11 @@
               gptBusy = false;
               return;
             }
-            finalText = stripPluginVerificationMarker(finalText);
+            if (job.type === 'summary') {
+              finalText = stripPluginVerificationMarker(rawVerificationText);
+            } else {
+              finalText = stripPluginVerificationMarker(finalText);
+            }
             if (!finalText) {
               finished = true;
               cleanup();
