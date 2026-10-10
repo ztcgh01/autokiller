@@ -242,3 +242,13 @@ Content behavior batch: PASS
 - TEST 7 continuation without inventing user dialogue/thought/emotion/action: PASS
 
 Direct-RP smoke testing is considered complete for migration purposes except the separately deferred InfoBox/rendering issue. Do not block the next AUTO_KILLER round-trip phase on further micro-tests.
+
+
+## alpha.4 privacy / UX transport change
+
+- review-zeta / generate-zeta / summarize-zeta plugin round-trip: PASS before alpha.4 transport consolidation.
+- Removed standalone handshake probe message. Plugin verification is now carried inside the actual job request and checked from the same response.
+- Removed `plainChatFallback` mode and removed the embedded legacy RP instruction copy from `auto_killer.core.js`.
+- On missing plugin verification marker, AUTO_KILLER stops and does not apply the result to ZETA.
+- Plugin mode now respects the temporary-chat ON/OFF setting. With OFF, only a conversation that completed a verified plugin job is saved/reused.
+- Plugin transport updated to v0.4.5. Production main remains untouched.
