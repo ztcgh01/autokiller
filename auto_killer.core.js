@@ -1,14 +1,14 @@
 /* AUTO_KILLER remote core
- * Unified remote core: 3.0.0-alpha.13
+ * Unified remote core: 3.0.0-alpha.14
  * Plugin migration test: plugin-first + legacy rollback; no embedded instruction fallback.
  */
 (function () {
   'use strict';
   window.__AUTO_KILLER_REMOTE_CORE_LOADED__ = true;
-  window.__AUTO_KILLER_REMOTE_CORE_VERSION__ = '3.0.0-alpha.13';
+  window.__AUTO_KILLER_REMOTE_CORE_VERSION__ = '3.0.0-alpha.14';
 
     'use strict';
-    const SCRIPT_VERSION = '3.0.0-alpha.13';
+    const SCRIPT_VERSION = '3.0.0-alpha.14';
     const LEGACY_GPT_URL = 'https://chatgpt.com/g/g-6a1099bd986881918e0c582d35aafb1d-yeogbyeongkilreo';
     const GPT_URL = LEGACY_GPT_URL;
     const CHATGPT_ROOT_URL = 'https://chatgpt.com/';
@@ -3425,17 +3425,17 @@
         itemCount: conversation.length,
         virtualCacheTurns: virtualConversationCache.turns.size
       });
-      if (!collected.availableCharacterCount || conversation.length < 2) {
+      if (!collected.availableCharacterCount) {
         closeTransferTab(transferTab);
-        say('생성에 사용할 대화를 충분히 찾지 못했어요.', true);
+        say('생성에 사용할 캐릭터 응답을 찾지 못했어요.', true);
         button.disabled = false;
         return;
       }
 
-      if (collected.availableCharacterCount < collected.requestedCharacterCount) {
+      if (collected.availableCharacterCount < collected.requestedCharacterCount || conversation.length < 2) {
         const proceed = window.confirm(
           `캐릭터 응답을 ${collected.requestedCharacterCount}턴 불러오도록 설정했지만, 현재 로드된 분량에서는 ${collected.availableCharacterCount}턴만 찾았어요.\n\n` +
-          '현재 분량으로 그냥 진행하려면 확인을 누르세요.\n더 위로 스크롤해 대화를 로드한 뒤 다시 시도하려면 취소를 누르세요.'
+          '현재 로드된 대화분으로 그냥 진행하려면 확인을 누르세요.\n더 위로 스크롤해 대화를 로드한 뒤 다시 시도하려면 취소를 누르세요.'
         );
         if (!proceed) {
           closeTransferTab(transferTab);
@@ -3496,17 +3496,17 @@
         maxLength,
         virtualCacheTurns: virtualConversationCache.turns.size
       });
-      if (!collected.availableCharacterCount || conversation.length < 2) {
+      if (!collected.availableCharacterCount) {
         closeTransferTab(transferTab);
-        say('요약할 대화를 충분히 찾지 못했어요.', true);
+        say('요약할 캐릭터 응답을 찾지 못했어요.', true);
         button.disabled = false;
         return;
       }
 
-      if (collected.availableCharacterCount < collected.requestedCharacterCount) {
+      if (collected.availableCharacterCount < collected.requestedCharacterCount || conversation.length < 2) {
         const proceed = window.confirm(
           `캐릭터 응답을 ${collected.requestedCharacterCount}턴 요약하도록 설정했지만, 현재 로드된 분량에서는 ${collected.availableCharacterCount}턴만 찾았어요.\n\n` +
-          '현재 분량으로 그냥 진행하려면 확인을 누르세요.\n더 위로 스크롤해 대화를 로드한 뒤 다시 시도하려면 취소를 누르세요.'
+          '현재 로드된 대화분으로 그냥 진행하려면 확인을 누르세요.\n더 위로 스크롤해 대화를 로드한 뒤 다시 시도하려면 취소를 누르세요.'
         );
         if (!proceed) {
           closeTransferTab(transferTab);
