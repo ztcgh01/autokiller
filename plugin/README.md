@@ -53,3 +53,12 @@ The old Custom GPT adapter remains available for rollback during the test period
 Production `main` remains on 2.25.5.9 until the migration branch passes the regression matrix.
 
 Do not merge the branch merely because the plugin package validates. Transport, Writing Block extraction, Android/iOS return flow, and all three AUTO_KILLER operations must pass first.
+
+
+## Exact legacy-instruction migration
+
+The current plugin release stores the uploaded legacy Custom GPT instruction file verbatim at `skills/base/references/legacy-instructions-verbatim.md`.
+
+The runtime Skill treats that file as the single authoritative RP ruleset and does not replace it with reconstructed summary rules. The previous reconstructed RP reference files were removed from the plugin release to avoid conflicts.
+
+The uploaded source and the plugin reference were verified as an exact string match before this release was finalized.
