@@ -1,14 +1,14 @@
 /* AUTO_KILLER remote core
- * Unified remote core: 2.25.5.7
+ * Unified remote core: 2.25.5.8
  * Temporary Chat: every job starts a fresh temporary chat.
  */
 (function () {
   'use strict';
   window.__AUTO_KILLER_REMOTE_CORE_LOADED__ = true;
-  window.__AUTO_KILLER_REMOTE_CORE_VERSION__ = '2.25.5.7';
+  window.__AUTO_KILLER_REMOTE_CORE_VERSION__ = '2.25.5.8';
 
     'use strict';
-    const SCRIPT_VERSION = '2.25.5.7';
+    const SCRIPT_VERSION = '2.25.5.8';
     const GPT_URL = 'https://chatgpt.com/g/g-6a1099bd986881918e0c582d35aafb1d-yeogbyeongkilreo';
     const PANEL_ID = 'zk-tm-unified-panel-v4';
     const JOB_KEY = 'zk_current_job_v2';
@@ -16,6 +16,7 @@
     const CONVERSATION_KEY = 'zk_gpt_conversation_v3';
     const VERIFIED_CONVERSATION_KEY = 'zk_gpt_conversation_verified_v1';
     const GPT_SESSION_KEY = 'zk_core_gpt_job_v1';
+    const GPT_EARLY_HASH_KEY = 'zk_loader_akjob_v1';
     const NEW_TAB_MODE_KEY = 'zk_new_tab_mode_v1';
     const TEMPORARY_CHAT_KEY = 'zk_temporary_chat_mode_v1';
     const JOB_SCHEMA = 4;
@@ -723,8 +724,9 @@
       if (diagnosticEnabled()) {
         installDiagnosticErrorHooks();
         installDiagnosticLifecycleHooks();
-        await diagnosticLog('PAGE_INIT', { environment: diagnosticEnvironmentSnapshot(), dom: diagnosticDomSnapshot() });
-        await diagnosticStorageRoundTrip('page-init');
+        void diagnosticLog('PAGE_INIT', { environment: diagnosticEnvironmentSnapshot(), dom: diagnosticDomSnapshot() })
+          .catch(() => {});
+        void diagnosticStorageRoundTrip('page-init').catch(() => {});
       }
     }
 
@@ -1640,7 +1642,7 @@
       header.append(dots, title, minimize, compactToggle, close);
       attachDiagnosticUi(shadow, root, mode, makeButton, say, diagnosticButton);
 
-      // 2.25 구형 로더 → 2.25.5.7 통합 로더 1회 재설치 안내.
+      // 2.25 구형 로더 → 2.25.5.8 통합 로더 1회 재설치 안내.
       // 새 로더는 core 실행 전에 __AUTO_KILLER_STORAGE_BRIDGE__를 true로 세팅하므로 안내가 자동으로 사라진다.
       const needsLoaderMigration = mode === 'zeta'
         && ONECLICK_BRIDGE
@@ -1648,10 +1650,10 @@
       const loaderMigrationNotice = document.createElement('div');
       loaderMigrationNotice.style.cssText = `display:${needsLoaderMigration ? 'flex' : 'none'};flex-direction:column;gap:6px;padding:8px 9px;border:1px solid #e6c96f;border-radius:9px;background:#fff8dc;color:#4d3f18;font:650 11px/1.4 system-ui,sans-serif`;
       const loaderMigrationText = document.createElement('div');
-      loaderMigrationText.innerHTML = '<b>⚠ AUTO_KILLER 중요 업데이트</b><br>새 자동 업데이트 방식 적용을 위해 <b>2.25.5.7을 한 번 다시 설치</b>해주세요.';
+      loaderMigrationText.innerHTML = '<b>⚠ AUTO_KILLER 중요 업데이트</b><br>새 자동 업데이트 방식 적용을 위해 <b>2.25.5.8을 한 번 다시 설치</b>해주세요.';
       const loaderMigrationButton = document.createElement('button');
       loaderMigrationButton.type = 'button';
-      loaderMigrationButton.textContent = '2.25.5.7 업데이트 설치';
+      loaderMigrationButton.textContent = '2.25.5.8 업데이트 설치';
       loaderMigrationButton.style.cssText = 'color-scheme:light;appearance:none;align-self:flex-start;border:1px solid #d5b952;border-radius:7px;padding:6px 9px;background:#fff;color:#4d3f18;font:800 11px/1.15 system-ui,sans-serif;cursor:pointer';
       loaderMigrationButton.onclick = () => {
         try {
@@ -4281,18 +4283,64 @@
       } else if (/(^|\.)chatgpt\.com$/i.test(location.hostname)) {
         const { say, state } = panel('gpt');
         const bookmarkletJob = readBookmarkletTransfer(BOOKMARKLET_JOB_PREFIX);
+
+        let earlyHashJob = null;
+        if (!bookmarkletJob && (BOOKMARKLET_MODE || ONECLICK_BRIDGE)) {
+          try {
+            const rawEarlyHash = sessionStorage.getItem(GPT_EARLY_HASH_KEY) || '';
+            if (rawEarlyHash) {
+              earlyHashJob = decodeTransfer(decodeURIComponent(rawEarlyHash));
+              if (earlyHashJob?.id) {
+                sessionStorage.setItem(GPT_SESSION_KEY, JSON.stringify(earlyHashJob));
+                sessionStorage.removeItem(GPT_EARLY_HASH_KEY);
+                diagnosticCheckpoint('GPT_EARLY_JOB_RECOVERED', {
+                  type: earlyHashJob.type || 'unknown',
+                  promptLength: String(earlyHashJob.text || '').length,
+                  temporaryChat: !!earlyHashJob.temporaryChat
+                });
+              } else {
+                earlyHashJob = null;
+              }
+            }
+          } catch (error) {
+            earlyHashJob = null;
+          }
+        }
+
         if (bookmarkletJob) {
-          try { sessionStorage.setItem(GPT_SESSION_KEY, JSON.stringify(bookmarkletJob)); } catch (error) {}
+          try {
+            sessionStorage.setItem(GPT_SESSION_KEY, JSON.stringify(bookmarkletJob));
+            sessionStorage.removeItem(GPT_EARLY_HASH_KEY);
+          } catch (error) {}
           history.replaceState(null, '', location.href.split('#')[0]);
         }
+
         let sessionJob = null;
         if (BOOKMARKLET_MODE || ONECLICK_BRIDGE) {
           try { sessionJob = JSON.parse(sessionStorage.getItem(GPT_SESSION_KEY) || 'null'); } catch (error) {}
         }
-        const initialJob = bookmarkletJob || sessionJob || await sharedStorage.get(JOB_KEY, null);
-        if (initialJob) await runOnGpt(initialJob, say, state);
-        else if (BOOKMARKLET_MODE) say('제타에서 작업을 시작한 뒤, GPT로 이동하면 북마클릿을 다시 눌러주세요.', true);
-        else say('제타 작업 데이터가 없어요.', true);
+
+        let storedJob = null;
+        if (!bookmarkletJob && !earlyHashJob && !sessionJob) {
+          try { storedJob = await sharedStorage.get(JOB_KEY, null); } catch (error) {
+            diagnosticFail('GPT_JOB_STORAGE_READ_FAILED', { errorName: error?.name || 'Error' });
+          }
+        }
+
+        const initialJob = bookmarkletJob || earlyHashJob || sessionJob || storedJob;
+        if (initialJob) {
+          await runOnGpt(initialJob, say, state);
+        } else {
+          diagnosticFail('GPT_JOB_NOT_FOUND', {
+            bookmarkletJob: !!bookmarkletJob,
+            earlyHashJob: !!earlyHashJob,
+            sessionJob: !!sessionJob,
+            storedJob: !!storedJob,
+            hashPresent: /(?:^#|[&#])akjob=/.test(location.hash)
+          });
+          if (BOOKMARKLET_MODE) say('제타에서 작업을 시작한 뒤, GPT로 이동하면 북마클릿을 다시 눌러주세요.', true);
+          else say('제타 작업 데이터가 없어요.', true);
+        }
       }
     }
     init().catch(error => console.error('[AUTO_KILLER Userscripts]', error));
