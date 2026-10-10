@@ -2,86 +2,171 @@
 
 ## Stable production baseline
 
-Production remains 2.25.5.9 during development.
+Production remains **2.25.5.9** on `main`.
 
-The current dedicated Custom GPT URL remains untouched on main until plugin mode passes regression testing.
+The migration is isolated on `plugin-migration-3.0`. The existing Custom GPT URL remains available as the rollback adapter.
+
+## Plugin release
+
+The private personal plugin has been created and migrated.
+
+- ID: `plugins_6aca3662eee4819184ade9b529406401`
+- name: `yeokbyeong-killer`
+- display name: `역병킬러`
+- migrated release: `0.2.1`
+- skill-only
+- no API key
+- no MCP dependency
+
+The source of the current release is mirrored under `plugin/`.
 
 ## Adapter model
 
-Introduce a `ChatTargetAdapter` abstraction instead of hard-wiring a single `GPT_URL`.
-
-Proposed adapters:
-
-### legacyCustomGPT
-
-Current behavior. Opens the existing `/g/g-...` target and uses the existing response watcher.
+AUTO_KILLER no longer needs one hard-coded ChatGPT target in the migration branch.
 
 ### plugin
 
-Opens a fresh ordinary ChatGPT conversation, explicitly activates the 역병킬러 plugin, runs an `AK_PLUGIN_V1` handshake, then submits the real job.
+Preferred 3.0 mode.
 
-Do not rely on automatic plugin selection.
+- opens ordinary ChatGPT
+- forces a fresh temporary chat for every job
+- requests use of `@역병킬러`
+- verifies activation before the real job with a challenge/response handshake
+- sends a JSON job envelope with `protocol`, `operation`, `body`, and `options`
+- keeps the existing response watcher and ZETA return path
+
+The real RP body is never submitted under an unverified assumption that the plugin is active.
 
 ### plainChatFallback
 
-Opens a fresh ordinary ChatGPT conversation and embeds the minimum authoritative 역병킬러 instruction contract directly into the job prompt.
+Fallback when plugin verification fails.
 
-This path is a fallback for plugin unavailable / plugin activation failure. It must preserve native Writing Block output for RP jobs.
+- stays API-key-free
+- opens/uses the same fresh temporary ChatGPT job
+- injects the authoritative minimum RP contract with the job
+- preserves native Writing Block output for review and generation
+- preserves the dedicated summary behavior
+
+This fallback exists so an unavailable plugin does not strand a ZETA job.
+
+### legacyCustomGPT
+
+Rollback path using the existing `/g/g-...` 역병킬러.
+
+Legacy conversation reuse remains isolated to this adapter only. Plugin/fallback modes always use a new temporary chat.
+
+## Plugin handshake
+
+Protocol: `AK_PLUGIN_V1`
+
+The request contains the challenge:
+
+`AK_PLUGIN_V1_CHALLENGE:7419`
+
+Only the plugin skill knows the required success response:
+
+`AK_PLUGIN_V1_OK:Q9M4`
+
+The expected response is not included in the handshake prompt. This prevents an ordinary ChatGPT response from trivially copying the success token from the request.
+
+If verification fails, AUTO_KILLER records `PLUGIN_HANDSHAKE_FAILED` and switches to the embedded fallback rather than sending the raw job.
 
 ## Job contract
 
-Extend the job object without breaking the current schema:
+Migration jobs keep the current schema and add optional fields:
 
-- `targetMode`: `legacyCustomGPT | plugin | plainChatFallback`
+- `targetMode`: `plugin | plainChatFallback | legacyCustomGPT`
 - `pluginProtocol`: `AK_PLUGIN_V1`
 - `operation`: `review-zeta | generate-zeta | summarize-zeta`
+- `pluginBody`: source/transcript data
+- `pluginOptions`: explicit user/AUTO_KILLER options
 
-The existing `type` field remains during migration for backward compatibility.
+The existing `type` and `text` fields remain for backward compatibility with 2.25.x.
 
-## Selection
+## RP contract retained
 
-During development, plugin mode must be opt-in behind a local feature flag.
+The plugin contains dedicated reference files for:
 
-Recommended resolution order after testing:
+- native Writing Block output
+- `@인물:` tags
+- literal escaped narration `\*...\*`
+- default joined narration/dialogue layout
+- explicit 엔터 split behavior
+- narrator `@:` absorption
+- 수정 / 정리 / 합치기 / 나누기
+- 짧출
+- 앵무새
+- 말풍
+- 이어쓰기 / 새 장면 생성
+- Korean grammar / 조사 cleanup
+- tone, rough speech, honorific, relationship, and emotion preservation
+- no invention of user dialogue/thought/emotion/action
 
-1. plugin
-2. plainChatFallback
-3. legacyCustomGPT during the transition window
+Summary remains plain summary text rather than RP Writing Block output.
 
-Do not silently submit a job to plain ChatGPT without either confirmed plugin activation or an embedded fallback instruction contract.
+## Empty-response hardening
+
+The migration branch also rejects UI-only shells such as `역병킬러의 말:` as real answer text.
+
+If an assistant turn has finished response-action buttons but no actual body for 8 seconds, AUTO_KILLER records `GPT_EMPTY_RESPONSE`, shows an explicit empty-response error, and does not apply a fake result to ZETA.
+
+Diagnostics initialization is isolated so a future diagnostic bug cannot abort the main AUTO_KILLER panel before startup.
+
+## Test UI
+
+The migration branch adds a ChatGPT connection-mode selector:
+
+- 플러그인 3.0
+- 기존 Custom GPT
+- 내장 지침 fallback
+
+Plugin/fallback modes force fresh temporary chats.
 
 ## Regression matrix
 
-Each target mode must be tested for:
+Before promotion, test:
 
-- review with no extra instruction
-- review with one and multiple extra instructions
-- generation with 20-turn collection
-- generation with added generation instruction
-- summary with default instruction and max length
-- summary with custom instruction
-- Android Firefox
-- Android Chrome where Userscripts is supported
-- iOS Userscripts/Safari path
-- desktop Chromium/Firefox where available
-- temporary chat
-- new-tab return path
-- Writing Block extraction and RP asterisk preservation
-- empty assistant response handling
-- diagnostics enabled and disabled
+- review, no extra instruction
+- review, one built-in option
+- review, multiple built-in/user options
+- 짧출
+- 엔터
+- 앵무새
+- 말풍
+- generation with normal recent-context collection
+- generation with 답변량 / 전개 / 대사 options
+- summary with default instruction
+- summary with custom max length and extra prompts
+- Writing Block extraction
+- literal narration backslash cleanup on ZETA return
+- empty assistant response
+- plugin handshake success
+- plugin handshake failure -> embedded fallback
+- manual legacy rollback mode
+- diagnostics OFF
+- diagnostics ON
+- Android Firefox OneClick
+- Android Chrome/compatible userscript environment
+- iOS Userscripts/Safari
+- desktop Chromium/Firefox
+- new-tab return
+- same-tab return where supported
+- temporary-chat entry
 
 ## Promotion gate
 
-Do not merge the plugin branch to main until:
+Do not fast-forward `main` until:
 
-- plugin creation succeeds
-- explicit plugin activation can be automated reliably
-- handshake succeeds
-- all three operations return to ZETA
-- Writing Block output remains intact
-- fallback behavior is verified
-- no regression in 2.25.5.9 legacy mode
+1. plugin release is readable in a **new ChatGPT conversation**
+2. handshake succeeds there
+3. review/generate/summary all round-trip ZETA -> ChatGPT -> ZETA
+4. Writing Blocks remain intact
+5. fallback passes at least one forced failure test
+6. legacy rollback still works
+7. no syntax/runtime regression appears with diagnostics enabled
 
 ## Rollback
 
-Main keeps legacy mode until promotion. If plugin mode breaks after release, the adapter can be forced back to `legacyCustomGPT` without reverting ZETA collection/apply logic.
+Until promotion, production remains 2.25.5.9.
+
+After promotion, the adapter can still be forced to `legacyCustomGPT` if plugin routing has a platform regression. ZETA extraction and result-application logic do not need to be reverted.
