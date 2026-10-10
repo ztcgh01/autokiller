@@ -1,14 +1,14 @@
 /* AUTO_KILLER remote core
- * Unified remote core: 3.0.0-rc.3
+ * Unified remote core: 3.0.0-rc.4
  * Plugin migration test: plugin-first + legacy rollback; no embedded instruction fallback.
  */
 (function () {
   'use strict';
   window.__AUTO_KILLER_REMOTE_CORE_LOADED__ = true;
-  window.__AUTO_KILLER_REMOTE_CORE_VERSION__ = '3.0.0-rc.3';
+  window.__AUTO_KILLER_REMOTE_CORE_VERSION__ = '3.0.0-rc.4';
 
     'use strict';
-    const SCRIPT_VERSION = '3.0.0-rc.3';
+    const SCRIPT_VERSION = '3.0.0-rc.4';
     const LEGACY_GPT_URL = 'https://chatgpt.com/g/g-6a1099bd986881918e0c582d35aafb1d-yeogbyeongkilreo';
     const GPT_URL = LEGACY_GPT_URL;
     const CHATGPT_ROOT_URL = 'https://chatgpt.com/';
