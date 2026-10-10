@@ -1,49 +1,55 @@
 # AUTO_KILLER Plugin Migration 3.0
 
-This directory is the source package for migrating the legacy "역병킬러" Custom GPT to a ChatGPT skill-only plugin without changing the ZETA-side workflow.
+This directory mirrors the actual private ChatGPT plugin source used for the 역병킬러 migration.
 
-## Goal
+## Current plugin
 
-Keep AUTO_KILLER responsible for:
+- Backend ID: `plugins_6aca3662eee4819184ade9b529406401`
+- Display name: `역병킬러`
+- Package name: `yeokbyeong-killer`
+- Current migrated version: `0.2.1`
+- Scope: private personal plugin
+- Shape: skill-only, no MCP app, no API key
 
-- collecting ZETA content
-- building job payloads
-- opening a fresh ChatGPT conversation
-- sending the job
-- detecting the completed response
-- returning the result to ZETA
+The files under `plugin/plugin.json`, `plugin/.codex-plugin/`, and `plugin/skills/` are kept in sync with the actual Plugin Creator release.
 
-Move the legacy Custom GPT behavior into a reusable plugin skill.
+## What moved from the Custom GPT
 
-## Target architecture
+The plugin skill preserves the RP behavior contract, including:
 
-```
-ZETA
-  -> AUTO_KILLER
-  -> ChatTargetAdapter
-       1. plugin
-       2. legacyCustomGPT
-       3. plainChatFallback
-  -> ChatGPT
-  -> AUTO_KILLER response transport
-  -> ZETA
-```
+- native Writing Block output for RP results
+- `@인물:` speech-bubble tags
+- literal `\*지문\*` narration escaping
+- narrator `@:` absorption
+- tone / rough speech / honorific / relationship preservation
+- current-tense cleanup and Korean sentence polish
+- 짧출 / 엔터 / 앵무새 / 말풍 behavior
+- 수정 / 정리 / 합치기 / 나누기 / 이어쓰기 / 새 장면 생성
+- AUTO_KILLER review / generate / summarize routing
+- summary character-limit behavior
+- safe partial summarization instead of unnecessary all-or-nothing stopping
 
-Production 2.25.x must remain unchanged until plugin mode passes review / generate / summarize regression tests.
+## AUTO_KILLER 3.0 transport
 
-## Plugin shape
+The migration branch adds a `ChatTargetAdapter`-style routing layer:
 
-Initial migration is skill-only. No MCP app or API key is required.
+1. `plugin`
+2. `plainChatFallback`
+3. `legacyCustomGPT`
 
-- `SKILL.md`: routing and invariant rules
-- `references/common-rp-contract.md`: shared RP/output contract
-- `references/review-zeta.md`: review workflow
-- `references/generate-zeta.md`: next-scene generation workflow
-- `references/summarize-zeta.md`: summary workflow
-- `references/transport-handshake.md`: AUTO_KILLER/plugin handshake contract
+Plugin mode opens a fresh ordinary temporary ChatGPT conversation. Before any real ZETA payload is submitted, AUTO_KILLER sends a plugin-specific challenge and requires the private response defined only in the plugin skill.
 
-## Important
+Current handshake:
 
-RP results must continue to use ChatGPT's native Writing Block UI. Do not replace Writing Blocks with ordinary prose or fenced code blocks.
+- challenge: `AK_PLUGIN_V1_CHALLENGE:7419`
+- expected response: `AK_PLUGIN_V1_OK:Q9M4`
 
-The current Custom GPT remains the production target while this branch is under development.
+If that response is not observed, AUTO_KILLER does **not** send the raw RP prompt as if the plugin were active. It switches to the embedded full-contract fallback.
+
+The old Custom GPT adapter remains available for rollback during the test period.
+
+## Production safety
+
+Production `main` remains on 2.25.5.9 until the migration branch passes the regression matrix.
+
+Do not merge the branch merely because the plugin package validates. Transport, Writing Block extraction, Android/iOS return flow, and all three AUTO_KILLER operations must pass first.
