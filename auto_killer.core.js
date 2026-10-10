@@ -1,14 +1,14 @@
 /* AUTO_KILLER remote core
- * Unified remote core: 3.0.0-alpha.14
+ * Unified remote core: 3.0.0-alpha.15
  * Plugin migration test: plugin-first + legacy rollback; no embedded instruction fallback.
  */
 (function () {
   'use strict';
   window.__AUTO_KILLER_REMOTE_CORE_LOADED__ = true;
-  window.__AUTO_KILLER_REMOTE_CORE_VERSION__ = '3.0.0-alpha.14';
+  window.__AUTO_KILLER_REMOTE_CORE_VERSION__ = '3.0.0-alpha.15';
 
     'use strict';
-    const SCRIPT_VERSION = '3.0.0-alpha.14';
+    const SCRIPT_VERSION = '3.0.0-alpha.15';
     const LEGACY_GPT_URL = 'https://chatgpt.com/g/g-6a1099bd986881918e0c582d35aafb1d-yeogbyeongkilreo';
     const GPT_URL = LEGACY_GPT_URL;
     const CHATGPT_ROOT_URL = 'https://chatgpt.com/';
@@ -3282,6 +3282,182 @@
       });
     }
 
+    function zetaConnectedEditButtons() {
+      const usable = button => button
+        && button.isConnected
+        && !button.disabled
+        && !button.closest?.('#auto-killer-panel, [data-auto-killer-root="true"]');
+
+      const found = [];
+      const seen = new Set();
+      const add = button => {
+        if (!usable(button) || seen.has(button)) return;
+        seen.add(button);
+        found.push(button);
+      };
+
+      try { document.querySelectorAll('[data-testid="edit-button"]').forEach(add); } catch (error) {}
+      try { document.querySelectorAll('button[aria-label="Edit message"]').forEach(add); } catch (error) {}
+      try {
+        document.querySelectorAll('button svg[viewBox="0 0 24 24"] path').forEach(path => {
+          if ((path.getAttribute('d') || '').startsWith('M21.675 7.905')) add(path.closest('button'));
+        });
+      } catch (error) {}
+
+      return found;
+    }
+
+    function zetaCharacterRootFromEditButton(button) {
+      if (!button) return null;
+
+      const preferred = button.closest?.(
+        '[data-sentry-component="Candidate"], [data-sentry-component="BodyView"], [data-sentry-component="LastChatMessage"], [id^="message-"], .swiper-slide'
+      );
+      if (preferred) return preferred;
+
+      let current = button.parentElement;
+      let best = null;
+      for (let depth = 0; current && current !== document.body && depth < 12; depth += 1) {
+        const chatCount = current.querySelectorAll?.('.chat')?.length || 0;
+        const editCount = current.querySelectorAll?.('[data-testid="edit-button"], button[aria-label="Edit message"]')?.length || 0;
+        const text = cleanConversationText(current);
+        if (chatCount > 0 || (editCount <= 1 && text.length >= 8)) best = current;
+        if (chatCount > 0 && editCount <= 1) return current;
+        current = current.parentElement;
+      }
+      return best;
+    }
+
+    function zetaBubbleTextsFromRoot(root) {
+      if (!root) return [];
+      const texts = [];
+      const seen = new Set();
+
+      const pushText = value => {
+        const text = String(value || '').replace(/\u00a0/g, ' ').trim();
+        if (!text || seen.has(text)) return;
+        if (/^(?:수정|복사|재생성|Edit|Copy|Regenerate|More|더보기)$/i.test(text)) return;
+        seen.add(text);
+        texts.push(text);
+      };
+
+      try {
+        root.querySelectorAll('.chat').forEach(element => {
+          if (element.closest('button, [role="button"]')) return;
+          pushText(cleanConversationText(element));
+        });
+      } catch (error) {}
+
+      if (!texts.length) {
+        const clone = root.cloneNode(true);
+        try {
+          clone.querySelectorAll('button, svg, script, style, textarea, input, [role="button"]').forEach(element => element.remove());
+        } catch (error) {}
+        let text = cleanConversationText(clone);
+        const caption = cleanConversationText(root.querySelector?.('span.caption1, [class*="caption"]'));
+        if (caption && text.startsWith(caption)) text = text.slice(caption.length).trim();
+        pushText(text);
+      }
+
+      return texts;
+    }
+
+    function collectConversationFallbackTurns() {
+      const entries = [];
+      const characterRoots = new Set();
+
+      zetaConnectedEditButtons().forEach((button, index) => {
+        const root = zetaCharacterRootFromEditButton(button);
+        if (!root || characterRoots.has(root)) return;
+        characterRoots.add(root);
+
+        const texts = zetaBubbleTextsFromRoot(root);
+        if (!texts.length) return;
+
+        const speaker =
+          cleanConversationText(root.querySelector?.('span.caption1')) ||
+          cleanConversationText(root.querySelector?.('[class*="caption"]')) ||
+          (root.querySelector?.('img[alt$=" 프로필 이미지"]')?.alt || '').replace(/ 프로필 이미지$/, '') ||
+          'CHARACTER';
+
+        let top = 0;
+        try { top = root.getBoundingClientRect().top; } catch (error) {}
+        entries.push({
+          top,
+          domIndex: index,
+          turn: {
+            id: root.id || `fallback-character-${index}-${texts.join('|').slice(0,80)}`,
+            kind: 'character',
+            items: texts.map((text, bubbleIndex) => ({
+              role: 'character',
+              speaker,
+              text,
+              source: 'fallback-edit-anchor',
+              viewIndex: index,
+              bubbleIndex,
+              messageId: root.id || ''
+            }))
+          }
+        });
+      });
+
+      // 캐릭터 루트 바깥의 보이는 .chat 말풍선은 사용자/내레이터 맥락 fallback으로 취급한다.
+      try {
+        [...document.querySelectorAll('.chat')].forEach((bubble, index) => {
+          if (!bubble.isConnected || bubble.closest('button, textarea, input')) return;
+          if ([...characterRoots].some(root => root.contains(bubble))) return;
+
+          const text = cleanConversationText(bubble);
+          if (!text) return;
+
+          const component = bubble.closest?.('[data-sentry-component]')?.getAttribute?.('data-sentry-component') || '';
+          let role = /Right/i.test(component) ? 'user' : (/Narrator/i.test(component) ? 'narrator' : '');
+
+          if (!role) {
+            try {
+              const rect = bubble.getBoundingClientRect();
+              const center = rect.left + rect.width / 2;
+              role = center > innerWidth * 0.55 ? 'user' : 'narrator';
+            } catch (error) {
+              role = 'narrator';
+            }
+          }
+
+          let top = 0;
+          try { top = bubble.getBoundingClientRect().top; } catch (error) {}
+          entries.push({
+            top,
+            domIndex: 10000 + index,
+            turn: {
+              id: `fallback-${role}-${index}-${text.slice(0,80)}`,
+              kind: role === 'user' ? 'user' : 'context',
+              items: [{
+                role,
+                speaker: role === 'user' ? '{{user}}' : 'NARRATOR',
+                text,
+                source: 'fallback-chat-bubble',
+                viewIndex: index,
+                bubbleIndex: 0,
+                messageId: ''
+              }]
+            }
+          });
+        });
+      } catch (error) {}
+
+      entries.sort((a, b) => a.top !== b.top ? a.top - b.top : a.domIndex - b.domIndex);
+
+      const result = [];
+      const seenKey = new Set();
+      entries.forEach(entry => {
+        const key = entry.turn.items.map(item => `${item.role}:${item.text}`).join('|');
+        if (!key || seenKey.has(key)) return;
+        seenKey.add(key);
+        result.push(entry.turn);
+      });
+      return result;
+    }
+
     function collectConversation(characterLimit = GENERATION_DEFAULT_CHARACTER_COUNT) {
       const turns = [];
 
@@ -3346,6 +3522,15 @@
               items: candidateItems
             });
           }
+        }
+      }
+
+      // 기존 ZETA selector가 현재 DOM에서 0턴으로 떨어지는 경우,
+      // 검토 기능이 이미 잡아내는 수정 버튼과 실제 .chat 말풍선을 기준으로 한 제한적 fallback을 사용한다.
+      if (!turns.some(turn => turn.kind === 'character')) {
+        const fallbackTurns = collectConversationFallbackTurns();
+        if (fallbackTurns.some(turn => turn.kind === 'character')) {
+          turns.splice(0, turns.length, ...fallbackTurns);
         }
       }
 
