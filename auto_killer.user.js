@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         AUTO_KILLER
 // @namespace    local.zeta.gpt.oneclick.unified
-// @version      2.25.5.6
+// @version      2.25.5.7
 // @description  GitHub의 최신 AUTO_KILLER 통합 코어를 Android, iPhone, 데스크톱 브라우저에서 자동으로 불러옵니다.
 // @downloadURL  https://ztcgh01.github.io/autokiller/auto_killer.user.js
 // @updateURL    https://ztcgh01.github.io/autokiller/auto_killer.user.js
@@ -37,7 +37,7 @@
   // iPhone Userscripts처럼 설치 주소를 제공하지 않는 환경에서는 배포자가 지정한 주소를 사용합니다.
   const FALLBACK_CORE_URL = 'https://ztcgh01.github.io/autokiller/auto_killer.core.js';
   const CORE_URL = resolveCoreUrl();
-  const LOADER_VERSION = '2.25.5.6';
+  const LOADER_VERSION = '2.25.5.7';
   const pageWindow = typeof unsafeWindow === 'object' ? unsafeWindow : window;
   const legacyLoaderInfo = typeof GM_info === 'object' && GM_info ? GM_info : null;
   const modernLoaderInfo = typeof GM === 'object' && GM && typeof GM.info === 'object' ? GM.info : null;
