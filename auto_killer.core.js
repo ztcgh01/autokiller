@@ -1131,8 +1131,8 @@
     function chatTargetMode() {
       const saved = localStorage.getItem(CHAT_TARGET_MODE_KEY);
       if ([CHAT_TARGET_PLUGIN, CHAT_TARGET_LEGACY].includes(saved)) return saved;
-      if (saved) localStorage.setItem(CHAT_TARGET_MODE_KEY, CHAT_TARGET_PLUGIN);
-      return CHAT_TARGET_PLUGIN;
+      if (saved) localStorage.removeItem(CHAT_TARGET_MODE_KEY);
+      return CHAT_TARGET_LEGACY;
     }
 
     function isLegacyTargetMode(mode = chatTargetMode()) {
