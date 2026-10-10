@@ -221,3 +221,9 @@ Before promotion, test at least one case for each major section of the verbatim 
 - direct RP skill body is the exact 98-line canonical source
 - AUTO_KILLER transport is isolated in a separate skill
 - v0.4.3 formatting regression must be re-tested in a new chat using v0.4.4
+
+- Golden Test 3 narrator absorption: PASS
+  - `@:` narrator removed
+  - user state absorbed as character-observable narration
+  - no `@유저:` bubble invented
+  - present-tense cleanup preserved
