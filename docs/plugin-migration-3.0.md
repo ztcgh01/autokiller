@@ -190,3 +190,8 @@ Verification performed during migration:
 - AUTO_KILLER `LEGACY_RP_INSTRUCTIONS` vs plugin mirror comparison: PASS
 
 The reconstructed RP helper documents used in early migration drafts were removed from the live plugin so they cannot conflict with the verbatim source. AUTO_KILLER's embedded fallback also embeds the same exact instruction text in the 3.0 alpha branch.
+
+
+## v0.4.4 exact-RP structure correction
+
+After runtime testing, the migration architecture was simplified to match the user's requirement of a verbatim transplant. Direct RP rules now live directly in `skills/rp/SKILL.md` as the exact 98-line source text (6393 normalized characters), with no added load gate or structure gate. AUTO_KILLER transport/handshake logic is isolated in a separate `skills/auto-killer/` skill. The previous `skills/base/` wrapper and its added gates were removed.
