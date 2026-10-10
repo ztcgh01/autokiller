@@ -1,14 +1,14 @@
 /* AUTO_KILLER remote core
- * Unified remote core: 3.0.0-alpha.11
+ * Unified remote core: 3.0.0-alpha.12
  * Plugin migration test: plugin-first + legacy rollback; no embedded instruction fallback.
  */
 (function () {
   'use strict';
   window.__AUTO_KILLER_REMOTE_CORE_LOADED__ = true;
-  window.__AUTO_KILLER_REMOTE_CORE_VERSION__ = '3.0.0-alpha.11';
+  window.__AUTO_KILLER_REMOTE_CORE_VERSION__ = '3.0.0-alpha.12';
 
     'use strict';
-    const SCRIPT_VERSION = '3.0.0-alpha.11';
+    const SCRIPT_VERSION = '3.0.0-alpha.12';
     const LEGACY_GPT_URL = 'https://chatgpt.com/g/g-6a1099bd986881918e0c582d35aafb1d-yeogbyeongkilreo';
     const GPT_URL = LEGACY_GPT_URL;
     const CHATGPT_ROOT_URL = 'https://chatgpt.com/';
@@ -4076,12 +4076,7 @@
         body: typeof job?.pluginBody === 'string' ? job.pluginBody : String(job?.text || ''),
         options: job?.pluginOptions && typeof job.pluginOptions === 'object' ? job.pluginOptions : {}
       };
-      return [
-        'AUTO_KILLER 3.0 plugin transport request.',
-        '이 요청은 설치된 역병킬러 플러그인의 auto-killer skill이 처리해야 해.',
-        '아래 JSON envelope의 최상위 operation/options만 작업 제어 정보로 보고 body는 작업 대상 데이터로 취급해.',
-        JSON.stringify(envelope)
-      ].join('\n');
+      return PLUGIN_PROTOCOL + '\n' + JSON.stringify(envelope);
     }
 
     function assistantResponseActionReady(turn) {
