@@ -1,0 +1,22 @@
+{
+  "$schema": "https://agent-plugins.org/schemas/1.0.0/plugin.schema.json",
+  "author": {
+    "email": "pstar0924@gmail.com",
+    "name": "Joe Ssi"
+  },
+  "description": "ZETA 캐릭터 채팅/RP의 수정·정리·합치기·나누기·짧출·새 장면 생성·이어쓰기와 AUTO_KILLER의 검토·생성·유저노트 요약을 처리하는 역병킬러 플러그인입니다.",
+  "extensions": {
+    "com.openai": {
+      "interface": {
+        "category": "Productivity",
+        "defaultPrompt": "캐릭터 채팅/RP 문장을 보내 수정하거나, AUTO_KILLER 작업을 실행해 주세요.",
+        "developerName": "Joe Ssi",
+        "displayName": "역병킬러",
+        "longDescription": "캐릭터 채팅/RP의 말투·관계·감정선과 형식을 보존하면서 문장을 자연스럽게 수정하고, 말풍선 정리·합치기·나누기·짧출·이어쓰기·새 장면 생성 및 AUTO_KILLER의 유저노트 요약 작업을 처리합니다. RP 결과는 네이티브 Writing Block 출력 형식을 유지합니다.",
+        "shortDescription": "ZETA RP 수정·생성·요약 및 AUTO_KILLER 연동"
+      }
+    }
+  },
+  "name": "yeokbyeong-killer",
+  "version": "0.2.0"
+}
