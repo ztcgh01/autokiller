@@ -27,6 +27,8 @@ AUTO_KILLER 3.0은 별도의 probe 메시지를 보내지 않고 실제 작업 �
 
 이 경우 별도의 handshake 전용 답변을 만들지 않는다. **같은 응답의 첫 줄에 정확히 `AK_PLUGIN_V1_OK:Q9M4`를 출력한 뒤 실제 작업 결과를 이어서 출력한다.**
 
+이 성공 마커 규칙은 review-zeta / generate-zeta / summarize-zeta 각 작업 파일의 “결과만 출력”, “머리말 금지”, “Writing Block만 출력” 규칙보다 우선하는 전송 예외다.
+
 - review-zeta / generate-zeta: 성공 마커는 Writing Block 바깥의 첫 줄에 두고, 그 다음에 기존 지침대로 실제 RP 결과만 네이티브 Writing Block으로 출력한다.
 - summarize-zeta: 성공 마커를 첫 줄에 두고, 다음 줄부터 설명이나 머리말 없이 실제 요약본만 출력한다.
 - 성공 마커 앞에 설명, 따옴표, 코드블록을 붙이지 않는다.
