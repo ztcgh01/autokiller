@@ -227,3 +227,18 @@ Before promotion, test at least one case for each major section of the verbatim 
   - user state absorbed as character-observable narration
   - no `@유저:` bubble invented
   - present-tense cleanup preserved
+
+
+## v0.4.4 batch direct-RP smoke result
+
+Content behavior batch: PASS
+
+- TEST 1 tone/intensity + 니 correction + misogynistic slur replacement: PASS
+- TEST 2 immediate-user-utterance repetition prevention + unsupported-first claim removal: PASS
+- TEST 3 numeric height/time cleanup: PASS
+- TEST 4 same-speaker bubble merge + narration/dialogue ordering: PASS
+- TEST 5 exact 3-bubble split: PASS
+- TEST 6 short-output narration compression with dialogue preservation: PASS
+- TEST 7 continuation without inventing user dialogue/thought/emotion/action: PASS
+
+Direct-RP smoke testing is considered complete for migration purposes except the separately deferred InfoBox/rendering issue. Do not block the next AUTO_KILLER round-trip phase on further micro-tests.
