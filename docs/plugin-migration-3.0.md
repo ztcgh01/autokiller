@@ -13,7 +13,7 @@ The private personal plugin has been created and migrated.
 - ID: `plugins_6aca3662eee4819184ade9b529406401`
 - name: `yeokbyeong-killer`
 - display name: `역병킬러`
-- migrated release: `0.4.2`
+- migrated release: `0.4.3`
 - skill-only
 - no API key
 - no MCP dependency
@@ -21,6 +21,8 @@ The private personal plugin has been created and migrated.
 The source of the current release is mirrored under `plugin/`.
 
 v0.4.2 adds a mandatory current-run load gate in `skills/base/SKILL.md`: RP review/generation must load the full `legacy-instructions-verbatim.md` in the current execution instead of relying on memory or summarized rules. The verbatim RP source itself is unchanged.
+
+v0.4.3 adds a structure-preservation validation gate after runtime smoke testing found that native Writing Block output could still drop the `InfoBox` header or alter `\\>` quote spacing. The gate re-checks existing `[형식 보존]` requirements before final output; the 98-line verbatim RP source remains unchanged.
 
 ## Adapter model
 
