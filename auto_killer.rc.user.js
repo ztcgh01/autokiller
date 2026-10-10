@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         AUTO_KILLER 3.0 RC
 // @namespace    local.zeta.gpt.oneclick.rc
-// @version      3.0.0-rc.4
+// @version      3.0.0-rc.5
 // @description  AUTO_KILLER 3.0 release candidate validation loader.
 // @match        https://*.zeta-ai.io/*
 // @match        https://zeta-ai.io/*
@@ -34,9 +34,9 @@
 
   // 설치된 로더와 같은 온라인 폴더의 코어를 자동으로 찾습니다.
   // iPhone Userscripts처럼 설치 주소를 제공하지 않는 환경에서는 배포자가 지정한 주소를 사용합니다.
-  const FALLBACK_CORE_URL = 'https://cdn.jsdelivr.net/gh/ztcgh01/autokiller@86dffc545319ddce913e1ba3fcea2d89cc9847f2/auto_killer.core.js';
+  const FALLBACK_CORE_URL = 'https://cdn.jsdelivr.net/gh/ztcgh01/autokiller@b79237cdf981350025280e03bfe8ecf86a102ef8/auto_killer.core.js';
   const CORE_URL = FALLBACK_CORE_URL;
-  const LOADER_VERSION = '3.0.0-rc.4';
+  const LOADER_VERSION = '3.0.0-rc.5';
   const pageWindow = typeof unsafeWindow === 'object' ? unsafeWindow : window;
   const legacyLoaderInfo = typeof GM_info === 'object' && GM_info ? GM_info : null;
   const modernLoaderInfo = typeof GM === 'object' && GM && typeof GM.info === 'object' ? GM.info : null;
