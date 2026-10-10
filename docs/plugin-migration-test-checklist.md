@@ -213,3 +213,11 @@ Do not merge to `main` until all of these pass:
 ## Exact-instruction regression
 
 Before promotion, test at least one case for each major section of the verbatim legacy instructions: output format, InfoBox, quote line, inner-thought preservation, star narration merging/splitting, narrator absorption, tone/intensity, repetition prevention, tense cleanup, particle correction, punctuation, numeric cleanup, bubble merge/split, short-output behavior, next-scene generation, and final output validation.
+
+
+## v0.4.4 architecture correction
+
+- removed `skills/base/` wrapper and assistant-added load/structure gates
+- direct RP skill body is the exact 98-line canonical source
+- AUTO_KILLER transport is isolated in a separate skill
+- v0.4.3 formatting regression must be re-tested in a new chat using v0.4.4
