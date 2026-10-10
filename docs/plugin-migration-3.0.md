@@ -170,3 +170,16 @@ Do not fast-forward `main` until:
 Until promotion, production remains 2.25.5.9.
 
 After promotion, the adapter can still be forced to `legacyCustomGPT` if plugin routing has a platform regression. ZETA extraction and result-application logic do not need to be reverted.
+
+
+## Exact instruction-source guarantee
+
+The user's uploaded current Custom GPT instructions are copied verbatim into `plugin/skills/base/references/legacy-instructions-verbatim.md` and are the authoritative RP source for plugin mode.
+
+Verification performed during migration:
+
+- uploaded instruction text length: 6393 characters
+- plugin reference text length: 6393 characters
+- exact string comparison: PASS
+
+The reconstructed RP helper documents used in early migration drafts were removed from the live plugin so they cannot conflict with the verbatim source. AUTO_KILLER's embedded fallback also embeds the same exact instruction text in the 3.0 alpha branch.
