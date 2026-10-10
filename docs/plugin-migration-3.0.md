@@ -13,7 +13,7 @@ The private personal plugin has been created and migrated.
 - ID: `plugins_6aca3662eee4819184ade9b529406401`
 - name: `yeokbyeong-killer`
 - display name: `역병킬러`
-- migrated release: `0.2.2`
+- migrated release: `0.4.1`
 - skill-only
 - no API key
 - no MCP dependency
@@ -178,8 +178,11 @@ The user's uploaded current Custom GPT instructions are copied verbatim into `pl
 
 Verification performed during migration:
 
-- uploaded instruction text length: 6393 characters
-- plugin reference text length: 6393 characters
-- exact string comparison: PASS
+- uploaded instruction text length: 6393 characters after newline normalization
+- plugin reference text length: 6393 characters after newline normalization
+- source file line count: 98
+- raw-content integrity fingerprint (FNV-1a 64, Unicode code points): `b4296d3b4d3daa4c`
+- exact source/plugin comparison: PASS
+- AUTO_KILLER `LEGACY_RP_INSTRUCTIONS` vs plugin mirror comparison: PASS
 
 The reconstructed RP helper documents used in early migration drafts were removed from the live plugin so they cannot conflict with the verbatim source. AUTO_KILLER's embedded fallback also embeds the same exact instruction text in the 3.0 alpha branch.
