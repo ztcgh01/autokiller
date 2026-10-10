@@ -22,7 +22,13 @@ Runtime result recorded from a new ChatGPT conversation after v0.4.2 release:
 
 - plugin handshake runtime (new chat, v0.4.2): PASS
 - observed exact reply: `AK_PLUGIN_V1_OK:Q9M4`
-- direct RP behavior tests: pending
+- Golden Test 1 content behavior: PASS
+  - present tense cleanup: PASS
+  - adjacent narration merge: PASS
+  - narration/dialogue ordering: PASS
+  - connective narration punctuation: PASS
+- Writing Block UI for Golden Test 1: not directly verifiable from pasted text
+- remaining direct RP behavior tests: pending
 
 Use `docs/plugin-rp-golden-smoke-tests.md` as the fixed RP behavior suite for Phase 1 and minimum AUTO_KILLER round-trip coverage.
 
