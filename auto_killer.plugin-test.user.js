@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         AUTO_KILLER Plugin Migration Test
 // @namespace    local.zeta.gpt.oneclick.plugin-test
-// @version      3.0.0-alpha.1
+// @version      3.0.0-alpha.2
 // @description  역병킬러 플러그인 3.0 이식 테스트용 AUTO_KILLER 로더입니다. production과 별도로 사용합니다.
 // @downloadURL  https://raw.githubusercontent.com/ztcgh01/autokiller/plugin-migration-3.0/auto_killer.plugin-test.user.js
 // @updateURL    https://raw.githubusercontent.com/ztcgh01/autokiller/plugin-migration-3.0/auto_killer.plugin-test.user.js
@@ -37,7 +37,7 @@
   // iPhone Userscripts처럼 설치 주소를 제공하지 않는 환경에서는 배포자가 지정한 주소를 사용합니다.
   const FALLBACK_CORE_URL = 'https://raw.githubusercontent.com/ztcgh01/autokiller/plugin-migration-3.0/auto_killer.core.js';
   const CORE_URL = resolveCoreUrl();
-  const LOADER_VERSION = '3.0.0-alpha.1';
+  const LOADER_VERSION = '3.0.0-alpha.2';
   const pageWindow = typeof unsafeWindow === 'object' ? unsafeWindow : window;
   const legacyLoaderInfo = typeof GM_info === 'object' && GM_info ? GM_info : null;
   const modernLoaderInfo = typeof GM === 'object' && GM && typeof GM.info === 'object' ? GM.info : null;
